@@ -1,0 +1,24 @@
+{
+  "name": "Bass Heavy",
+  "description": "EDM, hip-hop, dubstep — maximum sub-bass psychoacoustics, restrained treble (so it doesn't shrill on hot mixes), wide image, hard compression for club-loud impact.",
+  "match_patterns": [],
+  "params": {
+    "bigbass:target_freq":  140.0,
+    "bigbass:drive":          0.85,
+    "bigbass:mix":            0.65,
+    "bigbass:cut_dry_lows":   1.0,
+    "bigbass:loudness_db":    8.0,
+    "bigclarity:target_freq": 5000.0,
+    "bigclarity:drive":       0.2,
+    "bigclarity:mix":         0.15,
+    "bigspace:width":         1.4,
+    "bigspace:bass_keep_hz": 220.0,
+    "bigspace:mix":           1.0,
+    "bigcross:amount":        0.3,
+    "bigcross:cutoff_hz":   700.0,
+    "bigcross:delay_us":    280.0,
+    "bigloud:amount":         0.95,
+    "bigloud:ceiling_db":    -0.5,
+    "bigloud:mix":            1.0
+  }
+}

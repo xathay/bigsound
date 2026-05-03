@@ -1,0 +1,12 @@
+[package]
+name = "big-loud-ladspa"
+description = "LADSPA wrapper around BigLoud — stereo loudness shaper for PipeWire filter-chain"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "big_loud"
+crate-type = ["cdylib"]
+
+[dependencies]
+big-loud = { path = "../big-loud" }

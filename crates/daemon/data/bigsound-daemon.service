@@ -1,0 +1,16 @@
+[Unit]
+Description=BigSound DSP control daemon
+Documentation=https://github.com/bigcommunity/BigSound
+# Wait for the filter-chain to be live before starting — we need its
+# BigSound sink to exist when the daemon boots.
+After=filter-chain.service pipewire.service
+Wants=filter-chain.service
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/bigsound-daemon
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

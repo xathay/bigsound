@@ -1,0 +1,7 @@
+[package]
+name = "big-loud"
+description = "Loudness shaping (stereo-linked compressor + true-peak limiter) — second BigSound module"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

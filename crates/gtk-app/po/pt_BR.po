@@ -1,0 +1,183 @@
+# BigSound — Brazilian Portuguese translation.
+# Copyright (C) 2026 BigCommunity Team
+# This file is distributed under the same license as BigSound.
+# Leonardo Athayde, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: bigsound 0.7\n"
+"Report-Msgid-Bugs-To: https://github.com/big-comm/bigsound/issues\n"
+"POT-Creation-Date: 2026-05-03\n"
+"PO-Revision-Date: 2026-05-03\n"
+"Last-Translator: Leonardo Athayde\n"
+"Language-Team: Brazilian Portuguese\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+# === Header / titles ===
+
+msgid "DSP"
+msgstr "DSP"
+
+msgid "System-wide audio enhancement — set output to BigSound (DSP) in Sound settings."
+msgstr "Realce de áudio do sistema todo — selecione BigSound (DSP) em Configurações de Som."
+
+msgid "Output device"
+msgstr "Dispositivo de saída"
+
+msgid "Pick \"BigSound (DSP)\" in Settings → Sound → Output to route audio through BigSound."
+msgstr "Selecione \"BigSound (DSP)\" em Configurações → Som → Saída para enviar o áudio pelo BigSound."
+
+# === Slider titles ===
+
+msgid "Bass"
+msgstr "Grave"
+
+msgid "Bass Frequency (Hz)"
+msgstr "Frequência do Grave (Hz)"
+
+msgid "Bass Mix"
+msgstr "Mix do Grave"
+
+msgid "Clarity"
+msgstr "Brilho"
+
+msgid "Space"
+msgstr "Espaço"
+
+msgid "Crossfeed (Headphones)"
+msgstr "Crossfeed (Fones)"
+
+msgid "Loudness"
+msgstr "Loudness"
+
+msgid "Output Ceiling (dB)"
+msgstr "Teto de Saída (dB)"
+
+# === Slider subtitles ===
+
+msgid "Make-up gain on the psychoacoustic bass enhancement"
+msgstr "Ganho de compensação no realce psicoacústico de grave"
+
+msgid "Below this the speaker rolls off; harmonics are synthesised here"
+msgstr "Abaixo dessa frequência o alto-falante perde resposta; os harmônicos são sintetizados aqui"
+
+msgid "How much of the synthesised harmonic content to add"
+msgstr "Quanto do conteúdo harmônico sintetizado misturar"
+
+msgid "Treble exciter — sparkle on hi-hats, vocals, strings"
+msgstr "Exciter de agudos — brilho em pratos, voz e cordas"
+
+msgid "Stereo widening — 1.0 neutral, >1.0 wider, with bass kept centred"
+msgstr "Alargamento estéreo — 1,0 neutro, >1,0 mais amplo, com grave mantido no centro"
+
+msgid "Out-of-head soundstage — moves the image forward, less fatigue. 0 on speakers."
+msgstr "Palco sonoro fora da cabeça — projeta a imagem à frente, menos cansaço. 0 em alto-falantes."
+
+msgid "Compressor strength — higher = louder average, less dynamic"
+msgstr "Intensidade do compressor — maior = média mais alta, menos dinâmica"
+
+msgid "Peak limiter target — closer to 0 = louder peaks, more risk"
+msgstr "Alvo do limiter de pico — perto de 0 = picos mais altos, mais risco"
+
+# === Tooltips ===
+
+msgid "Reset to defaults"
+msgstr "Restaurar padrões"
+
+msgid "About BigSound"
+msgstr "Sobre o BigSound"
+
+msgid "Output profile (auto-applied when you change device)"
+msgstr "Perfil de saída (aplicado automaticamente ao trocar de dispositivo)"
+
+# === About dialog credit section titles ===
+
+msgid "Maintainer"
+msgstr "Mantenedor"
+
+msgid "DSP techniques"
+msgstr "Técnicas de DSP"
+
+msgid "Built on"
+msgstr "Construído com"
+
+msgid "Translation"
+msgstr "Tradução"
+
+# === About dialog comments / description ===
+
+msgid ""
+"System-wide audio enhancement for BigCommunity.\n"
+"\n"
+"A five-stage Rust DSP chain — BigBass (psychoacoustic bass synthesis), "
+"BigClarity (treble exciter), BigSpace (Mid/Side widener), BigCross "
+"(Bauer crossfeed for headphones) and BigLoud (compressor + limiter) "
+"— routed through PipeWire's filter-chain. Auto-applies a tuned "
+"profile when you switch output device (laptop, headphones, Bluetooth, "
+"HDMI), with built-in presets ranging from Studio Reference to "
+"Atmos / Cinema."
+msgstr ""
+"Realce de áudio para todo o sistema, do BigCommunity.\n"
+"\n"
+"Cadeia DSP de cinco estágios em Rust — BigBass (síntese psicoacústica "
+"de grave), BigClarity (exciter de agudos), BigSpace (alargamento "
+"Mid/Side), BigCross (crossfeed Bauer para fones) e BigLoud (compressor "
+"+ limiter) — roteada pelo filter-chain do PipeWire. Aplica um perfil "
+"afinado automaticamente ao trocar o dispositivo de saída (laptop, fones, "
+"Bluetooth, HDMI), com presets prontos que vão de Referência de Estúdio "
+"a Atmos / Cinema."
+
+# === Profile names (canonical English msgid → localised display) ===
+
+msgid "BigSound"
+msgstr "BigSound"
+
+msgid "Laptop Speaker"
+msgstr "Alto-falante de Laptop"
+
+msgid "Headphones"
+msgstr "Fones de Ouvido"
+
+msgid "Bluetooth"
+msgstr "Bluetooth"
+
+msgid "HDMI / TV"
+msgstr "HDMI / TV"
+
+msgid "Studio Reference"
+msgstr "Referência de Estúdio"
+
+msgid "Atmos / Cinema"
+msgstr "Atmos / Cinema"
+
+msgid "Audiophile"
+msgstr "Audiófilo"
+
+msgid "Punchy"
+msgstr "Impacto"
+
+msgid "Gaming"
+msgstr "Jogos"
+
+msgid "Voice / Podcast"
+msgstr "Voz / Podcast"
+
+msgid "Bass Heavy"
+msgstr "Grave Pesado"
+
+msgid "Late Night"
+msgstr "Madrugada"
+
+msgid "Live / Concert"
+msgstr "Ao Vivo / Concerto"
+
+# === Error messages ===
+
+msgid "BigSound app: bigsound-daemon doesn't seem to be running."
+msgstr "BigSound: o bigsound-daemon não parece estar rodando."
+
+msgid "Try: systemctl --user start bigsound-daemon.service"
+msgstr "Tente: systemctl --user start bigsound-daemon.service"

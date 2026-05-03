@@ -1,0 +1,8 @@
+[package]
+name = "big-space"
+description = "Stereo widening (mid/side) with bass-keep-mono safety — fourth BigSound module"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+big-bass = { path = "../big-bass" }

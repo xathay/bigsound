@@ -1,0 +1,14 @@
+[package]
+name = "bigsound-cli"
+description = "BigSound CLI client — talks to the BigSound D-Bus daemon to tune the DSP live"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+zbus.workspace = true
+
+[[bin]]
+name = "bigsound"
+path = "src/main.rs"

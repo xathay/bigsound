@@ -1,0 +1,24 @@
+{
+  "name": "Voice / Podcast",
+  "description": "Vocal clarity boost + heavy compression for consistent talk-radio level. Stereo image kept narrow (close to mono) — speech is centred anyway and widening makes lispy sibilance worse.",
+  "match_patterns": [],
+  "params": {
+    "bigbass:target_freq":  120.0,
+    "bigbass:drive":          0.2,
+    "bigbass:mix":            0.15,
+    "bigbass:cut_dry_lows":   1.0,
+    "bigbass:loudness_db":    2.0,
+    "bigclarity:target_freq": 2800.0,
+    "bigclarity:drive":       0.4,
+    "bigclarity:mix":         0.4,
+    "bigspace:width":         0.85,
+    "bigspace:bass_keep_hz": 200.0,
+    "bigspace:mix":           1.0,
+    "bigcross:amount":        0.0,
+    "bigcross:cutoff_hz":   700.0,
+    "bigcross:delay_us":    280.0,
+    "bigloud:amount":         0.85,
+    "bigloud:ceiling_db":    -1.0,
+    "bigloud:mix":            1.0
+  }
+}

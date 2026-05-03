@@ -1,0 +1,12 @@
+[package]
+name = "big-space-ladspa"
+description = "LADSPA wrapper around BigSpace — stereo widener for PipeWire filter-chain"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "big_space"
+crate-type = ["cdylib"]
+
+[dependencies]
+big-space = { path = "../big-space" }

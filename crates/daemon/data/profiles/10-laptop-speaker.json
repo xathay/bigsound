@@ -1,0 +1,28 @@
+{
+  "name": "Laptop Speaker",
+  "description": "Aggressive bass synthesis + heavy compression for tiny rolled-off speakers; no crossfeed (room provides it physically)",
+  "match_patterns": [
+    "alsa_output\\.pci-.*::analog-output-speaker$",
+    "alsa_output\\..*\\.HiFi__Speaker__sink",
+    "alsa_output\\.pci-.*\\.analog-stereo$"
+  ],
+  "params": {
+    "bigbass:target_freq":  150.0,
+    "bigbass:drive":          0.7,
+    "bigbass:mix":            0.55,
+    "bigbass:cut_dry_lows":   1.0,
+    "bigbass:loudness_db":    6.0,
+    "bigclarity:target_freq": 3500.0,
+    "bigclarity:drive":       0.45,
+    "bigclarity:mix":         0.35,
+    "bigspace:width":         1.2,
+    "bigspace:bass_keep_hz":  200.0,
+    "bigspace:mix":           1.0,
+    "bigcross:amount":        0.0,
+    "bigcross:cutoff_hz":   700.0,
+    "bigcross:delay_us":    280.0,
+    "bigloud:amount":         1.0,
+    "bigloud:ceiling_db":    -1.0,
+    "bigloud:mix":            1.0
+  }
+}

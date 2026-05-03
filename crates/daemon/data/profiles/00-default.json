@@ -1,0 +1,24 @@
+{
+  "name": "BigSound",
+  "description": "Padrão balanceado, hi-fi friendly. Realça o áudio de forma perceptível mas sem coloração agressiva — funciona bem em qualquer hardware. É o profile aplicado automaticamente quando nenhum device-specific casa, e o ponto de partida recomendado pra explorar os outros profiles.",
+  "match_patterns": [],
+  "params": {
+    "bigbass:target_freq":   90.0,
+    "bigbass:drive":          0.45,
+    "bigbass:mix":            0.35,
+    "bigbass:cut_dry_lows":   0.0,
+    "bigbass:loudness_db":    2.5,
+    "bigclarity:target_freq": 4000.0,
+    "bigclarity:drive":       0.3,
+    "bigclarity:mix":         0.2,
+    "bigspace:width":         1.2,
+    "bigspace:bass_keep_hz": 150.0,
+    "bigspace:mix":           1.0,
+    "bigcross:amount":        0.3,
+    "bigcross:cutoff_hz":   700.0,
+    "bigcross:delay_us":    280.0,
+    "bigloud:amount":         0.4,
+    "bigloud:ceiling_db":    -1.0,
+    "bigloud:mix":            1.0
+  }
+}

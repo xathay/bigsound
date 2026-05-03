@@ -1,0 +1,16 @@
+# Cargo build artifacts.
+/target/
+**/target/
+
+# Test audio files (offline DSP validation).
+*.wav
+
+# IDE / editor.
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS metadata.
+.DS_Store
+Thumbs.db

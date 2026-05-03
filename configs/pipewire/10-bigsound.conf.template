@@ -1,0 +1,141 @@
+# BigSound — virtual sink with the full BigSound DSP chain.
+#
+# Chain:
+#   sink (FL) → bigbass_l → bigclarity_l ─┐
+#                                         ├─→ bigspace → bigcross → bigloud → playback
+#   sink (FR) → bigbass_r → bigclarity_r ─┘
+#
+# Modules:
+#   BigBass    — psychoacoustic bass enhancement (missing fundamental)
+#   BigClarity — treble exciter (odd-order harmonics for sparkle)
+#   BigSpace   — stereo widening (Mid/Side) with bass-keep-mono safety
+#   BigCross   — Bauer crossfeed (out-of-head soundstage on headphones)
+#   BigLoud    — stereo-linked compressor + limiter (FxSound-style loudness)
+#
+# install.sh substitutes the absolute .so paths before copying it to
+# ~/.config/pipewire/filter-chain.conf.d/10-bigsound.conf.
+
+context.modules = [
+    {
+        name = libpipewire-module-filter-chain
+        args = {
+            node.description = "BigSound (full chain)"
+            media.name       = "BigSound"
+
+            filter.graph = {
+                nodes = [
+                    {
+                        type    = ladspa
+                        name    = bigbass_l
+                        plugin  = "__BIG_BASS_SO_PATH__"
+                        label   = big_bass
+                        control = {
+                            "target_freq"  = 90.0
+                            "drive"        = 0.45
+                            "mix"          = 0.35
+                            "cut_dry_lows" = 0.0
+                            "loudness_db"  = 2.5
+                        }
+                    }
+                    {
+                        type    = ladspa
+                        name    = bigbass_r
+                        plugin  = "__BIG_BASS_SO_PATH__"
+                        label   = big_bass
+                        control = {
+                            "target_freq"  = 90.0
+                            "drive"        = 0.45
+                            "mix"          = 0.35
+                            "cut_dry_lows" = 0.0
+                            "loudness_db"  = 2.5
+                        }
+                    }
+                    {
+                        type    = ladspa
+                        name    = bigclarity_l
+                        plugin  = "__BIG_CLARITY_SO_PATH__"
+                        label   = big_clarity
+                        control = {
+                            "target_freq" = 4000.0
+                            "drive"       = 0.3
+                            "mix"         = 0.2
+                        }
+                    }
+                    {
+                        type    = ladspa
+                        name    = bigclarity_r
+                        plugin  = "__BIG_CLARITY_SO_PATH__"
+                        label   = big_clarity
+                        control = {
+                            "target_freq" = 4000.0
+                            "drive"       = 0.3
+                            "mix"         = 0.2
+                        }
+                    }
+                    {
+                        type    = ladspa
+                        name    = bigspace
+                        plugin  = "__BIG_SPACE_SO_PATH__"
+                        label   = big_space
+                        control = {
+                            "width"        = 1.2
+                            "bass_keep_hz" = 150.0
+                            "mix"          = 1.0
+                        }
+                    }
+                    {
+                        type    = ladspa
+                        name    = bigcross
+                        plugin  = "__BIG_CROSS_SO_PATH__"
+                        label   = big_cross
+                        control = {
+                            "amount"    = 0.3
+                            "cutoff_hz" = 700.0
+                            "delay_us"  = 280.0
+                        }
+                    }
+                    {
+                        type    = ladspa
+                        name    = bigloud
+                        plugin  = "__BIG_LOUD_SO_PATH__"
+                        label   = big_loud
+                        control = {
+                            "amount"     = 0.4
+                            "ceiling_db" = -1.0
+                            "mix"        = 1.0
+                        }
+                    }
+                ]
+
+                links = [
+                    { output = "bigbass_l:Output"    input = "bigclarity_l:Input"  }
+                    { output = "bigbass_r:Output"    input = "bigclarity_r:Input"  }
+                    { output = "bigclarity_l:Output" input = "bigspace:Input_L"    }
+                    { output = "bigclarity_r:Output" input = "bigspace:Input_R"    }
+                    { output = "bigspace:Output_L"   input = "bigcross:Input_L"    }
+                    { output = "bigspace:Output_R"   input = "bigcross:Input_R"    }
+                    { output = "bigcross:Output_L"   input = "bigloud:Input_L"     }
+                    { output = "bigcross:Output_R"   input = "bigloud:Input_R"     }
+                ]
+
+                inputs  = [ "bigbass_l:Input"   "bigbass_r:Input"   ]
+                outputs = [ "bigloud:Output_L"  "bigloud:Output_R"  ]
+            }
+
+            capture.props = {
+                node.name             = "BigSound"
+                node.description      = "BigSound (DSP)"
+                media.class           = "Audio/Sink"
+                audio.position        = [ FL FR ]
+                node.suspend-on-idle  = false
+            }
+
+            playback.props = {
+                node.name             = "BigSound.output"
+                node.passive          = true
+                audio.position        = [ FL FR ]
+                node.suspend-on-idle  = false
+            }
+        }
+    }
+]

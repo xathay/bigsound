@@ -1,0 +1,24 @@
+{
+  "name": "Late Night",
+  "description": "Quiet listening that doesn't disturb others — bass is rolled off (thumps travel through walls), heavy compression keeps everything at a constant level so you don't crank-up-then-startle on a sudden loud bit. Vocal-clarity bump so you don't lose dialogue at low volume.",
+  "match_patterns": [],
+  "params": {
+    "bigbass:target_freq":   60.0,
+    "bigbass:drive":          0.2,
+    "bigbass:mix":            0.15,
+    "bigbass:cut_dry_lows":   1.0,
+    "bigbass:loudness_db":   -2.0,
+    "bigclarity:target_freq": 3000.0,
+    "bigclarity:drive":       0.35,
+    "bigclarity:mix":         0.3,
+    "bigspace:width":         1.0,
+    "bigspace:bass_keep_hz": 100.0,
+    "bigspace:mix":           1.0,
+    "bigcross:amount":        0.5,
+    "bigcross:cutoff_hz":   700.0,
+    "bigcross:delay_us":    280.0,
+    "bigloud:amount":         0.9,
+    "bigloud:ceiling_db":    -2.0,
+    "bigloud:mix":            1.0
+  }
+}

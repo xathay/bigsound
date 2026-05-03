@@ -1,0 +1,8 @@
+[package]
+name = "big-clarity"
+description = "Treble exciter — generates odd-order high-frequency harmonics for sparkle/presence"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+big-bass = { path = "../big-bass" }

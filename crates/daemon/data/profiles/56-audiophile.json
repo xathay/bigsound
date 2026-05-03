@@ -1,0 +1,24 @@
+{
+  "name": "Audiophile",
+  "description": "For dedicated headphones / hi-fi speakers and FLAC/WAV sources. Almost no coloration, full dynamics preserved (the recording's macro and micro dynamics remain intact), with just enough crossfeed to escape the in-head image of headphones. Compression is essentially off — peak limiter only catches actual digital overs.",
+  "match_patterns": [],
+  "params": {
+    "bigbass:target_freq":   55.0,
+    "bigbass:drive":          0.2,
+    "bigbass:mix":            0.12,
+    "bigbass:cut_dry_lows":   0.0,
+    "bigbass:loudness_db":    0.5,
+    "bigclarity:target_freq": 4500.0,
+    "bigclarity:drive":       0.15,
+    "bigclarity:mix":         0.06,
+    "bigspace:width":         1.05,
+    "bigspace:bass_keep_hz": 100.0,
+    "bigspace:mix":           1.0,
+    "bigcross:amount":        0.55,
+    "bigcross:cutoff_hz":   720.0,
+    "bigcross:delay_us":    290.0,
+    "bigloud:amount":         0.05,
+    "bigloud:ceiling_db":    -1.0,
+    "bigloud:mix":            1.0
+  }
+}

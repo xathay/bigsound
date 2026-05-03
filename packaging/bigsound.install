@@ -1,0 +1,49 @@
+# Pacman post-install hook for BigSound. Tells the user how to enable
+# the two systemd user services that drive the DSP, since we can't do
+# `systemctl --user enable` from a root-context package script.
+
+post_install() {
+    cat <<'MSG'
+
+==> BigSound foi instalado com sucesso.
+
+    Para ativar a cadeia DSP no sistema-todo, rode (como seu usuário):
+
+        systemctl --user enable --now filter-chain.service
+        systemctl --user enable --now bigsound-daemon.service
+
+    Depois abra Configurações → Som → Saída e selecione "BigSound (DSP)".
+    Tudo que tocar no sistema (YouTube, Spotify, MPV, Discord) vai passar
+    pela cadeia BigBass → BigClarity → BigSpace → BigLoud automaticamente.
+
+    Pluga e despluga fones — o BigSound auto-detecta e aplica o profile
+    correto sem cliques (laptop / fones / Bluetooth / HDMI).
+
+    Ajuste fino: abra "BigSound" no menu de aplicativos, ou use
+    `bigsound show` / `bigsound profile list` no terminal.
+
+MSG
+}
+
+post_upgrade() {
+    cat <<'MSG'
+
+==> BigSound atualizado.
+    Se a cadeia já estiver rodando:
+        systemctl --user restart filter-chain.service bigsound-daemon.service
+
+MSG
+}
+
+pre_remove() {
+    cat <<'MSG'
+
+==> Desativando BigSound...
+    Os serviços bigsound-daemon e filter-chain podem ainda estar rodando
+    para o usuário. Para parar:
+
+        systemctl --user disable --now bigsound-daemon.service
+        systemctl --user disable --now filter-chain.service
+
+MSG
+}

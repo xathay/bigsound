@@ -1,0 +1,24 @@
+{
+  "name": "Studio Reference",
+  "description": "Mastering-grade transparency — minimal coloration, true dynamics preserved. Use for critical listening, mixing, A/B reference. The chain becomes nearly invisible: only the peak limiter stays as a safety net.",
+  "match_patterns": [],
+  "params": {
+    "bigbass:target_freq":  100.0,
+    "bigbass:drive":          0.0,
+    "bigbass:mix":            0.0,
+    "bigbass:cut_dry_lows":   0.0,
+    "bigbass:loudness_db":    0.0,
+    "bigclarity:target_freq": 3500.0,
+    "bigclarity:drive":       0.0,
+    "bigclarity:mix":         0.0,
+    "bigspace:width":         1.0,
+    "bigspace:bass_keep_hz": 200.0,
+    "bigspace:mix":           0.0,
+    "bigcross:amount":        0.0,
+    "bigcross:cutoff_hz":   700.0,
+    "bigcross:delay_us":    280.0,
+    "bigloud:amount":         0.0,
+    "bigloud:ceiling_db":    -1.0,
+    "bigloud:mix":            1.0
+  }
+}

@@ -1,0 +1,16 @@
+[package]
+name = "bigsound-app"
+description = "BigSound GTK4 + libadwaita frontend — live DSP tuning via D-Bus"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+gtk = { package = "gtk4", version = "0.9" }
+libadwaita = { version = "0.7", features = ["v1_4"] }
+zbus.workspace = true
+anyhow.workspace = true
+gettext-rs = { version = "0.7", features = ["gettext-system"] }
+
+[[bin]]
+name = "bigsound-app"
+path = "src/main.rs"

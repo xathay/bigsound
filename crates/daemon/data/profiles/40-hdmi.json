@@ -1,0 +1,28 @@
+{
+  "name": "HDMI / TV",
+  "description": "Neutral tuning for TV / external display speakers — variable hardware, conservative defaults",
+  "match_patterns": [
+    "alsa_output\\..*\\.hdmi-.*",
+    "alsa_output\\..*::hdmi-output-.*",
+    "alsa_output\\..*\\.HiFi__hdmi.*"
+  ],
+  "params": {
+    "bigbass:target_freq":   90.0,
+    "bigbass:drive":          0.5,
+    "bigbass:mix":            0.4,
+    "bigbass:cut_dry_lows":   0.0,
+    "bigbass:loudness_db":    3.0,
+    "bigclarity:target_freq": 3500.0,
+    "bigclarity:drive":       0.3,
+    "bigclarity:mix":         0.2,
+    "bigspace:width":         1.2,
+    "bigspace:bass_keep_hz": 150.0,
+    "bigspace:mix":           1.0,
+    "bigcross:amount":        0.0,
+    "bigcross:cutoff_hz":   700.0,
+    "bigcross:delay_us":    280.0,
+    "bigloud:amount":         0.6,
+    "bigloud:ceiling_db":    -1.5,
+    "bigloud:mix":            1.0
+  }
+}

@@ -1,0 +1,16 @@
+[package]
+name = "bigsound-daemon"
+description = "BigSound D-Bus daemon — exposes the live filter-chain controls for GTK app and CLI"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+zbus.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+
+[[bin]]
+name = "bigsound-daemon"
+path = "src/main.rs"

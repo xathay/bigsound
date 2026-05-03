@@ -1,0 +1,12 @@
+[package]
+name = "big-bass-ladspa"
+description = "LADSPA wrapper around the BigBass DSP — loaded by PipeWire's filter-chain module"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "big_bass"
+crate-type = ["cdylib"]
+
+[dependencies]
+big-bass = { path = "../big-bass" }

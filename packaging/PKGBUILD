@@ -1,0 +1,134 @@
+# Maintainer: Leonardo Athayde (xathay) <https://github.com/xathay>
+# Contributor: BigCommunity Team
+
+pkgname=bigsound
+pkgver=0.6.0
+pkgrel=1
+pkgdesc='System-wide audio enhancement for BigCommunity (BigBass + BigClarity + BigSpace + BigLoud) with auto-profile per output device'
+arch=('x86_64')
+url='https://github.com/xathay/bigsound'
+license=('GPL-3.0-or-later')
+
+depends=(
+    'pipewire'
+    'pipewire-pulse'
+    'gtk4'
+    'libadwaita'
+    'glibc'
+    'gcc-libs'
+)
+makedepends=(
+    'rust'
+    'cargo'
+    'pkgconf'
+    'gettext'
+)
+optdepends=(
+    'pipewire-jack: replace JACK with PipeWire-JACK for compatibility'
+)
+conflicts=(
+    'jamesdsp'
+    'easyeffects'
+)
+provides=("$pkgname=$pkgver")
+install=bigsound.install
+
+# Local-build PKGBUILD: assumes the workspace lives at ../  relative to
+# this file. For real distribution, replace `source=()` with a git
+# URL and adjust the `build()` paths accordingly.
+source=()
+sha256sums=()
+
+# `_root` is the absolute path to the BigSound workspace root.
+_root="$(realpath "$startdir/..")"
+
+prepare() {
+    # Populate Cargo's vendor cache once so offline rebuilds are fast
+    # (no-op if already populated).
+    cd "$_root"
+    cargo fetch --locked 2>/dev/null || cargo fetch
+}
+
+build() {
+    cd "$_root"
+    cargo build --release --frozen \
+        -p big-bass-ladspa \
+        -p big-clarity-ladspa \
+        -p big-space-ladspa \
+        -p big-cross-ladspa \
+        -p big-loud-ladspa \
+        -p bigsound-daemon \
+        -p bigsound-cli \
+        -p bigsound-app
+}
+
+package() {
+    cd "$_root"
+
+    # LADSPA plugins (system-wide so PipeWire's filter-chain module
+    # finds them via the standard LADSPA_PATH).
+    install -Dm755 target/release/libbig_bass.so    "$pkgdir/usr/lib/ladspa/big_bass.so"
+    install -Dm755 target/release/libbig_clarity.so "$pkgdir/usr/lib/ladspa/big_clarity.so"
+    install -Dm755 target/release/libbig_space.so   "$pkgdir/usr/lib/ladspa/big_space.so"
+    install -Dm755 target/release/libbig_cross.so   "$pkgdir/usr/lib/ladspa/big_cross.so"
+    install -Dm755 target/release/libbig_loud.so    "$pkgdir/usr/lib/ladspa/big_loud.so"
+
+    # Binaries.
+    install -Dm755 target/release/bigsound-daemon "$pkgdir/usr/bin/bigsound-daemon"
+    install -Dm755 target/release/bigsound        "$pkgdir/usr/bin/bigsound"
+    install -Dm755 target/release/bigsound-app    "$pkgdir/usr/bin/bigsound-app"
+
+    # PipeWire filter-chain config — system-wide install at
+    # /usr/share/pipewire/filter-chain.conf.d/, paths point to
+    # /usr/lib/ladspa/ where the .so files just landed.
+    install -dm755 "$pkgdir/usr/share/pipewire/filter-chain.conf.d"
+    sed -e "s|__BIG_BASS_SO_PATH__|/usr/lib/ladspa/big_bass.so|g"       \
+        -e "s|__BIG_CLARITY_SO_PATH__|/usr/lib/ladspa/big_clarity.so|g" \
+        -e "s|__BIG_SPACE_SO_PATH__|/usr/lib/ladspa/big_space.so|g"     \
+        -e "s|__BIG_CROSS_SO_PATH__|/usr/lib/ladspa/big_cross.so|g"     \
+        -e "s|__BIG_LOUD_SO_PATH__|/usr/lib/ladspa/big_loud.so|g"       \
+        configs/pipewire/10-bigsound.conf.template                      \
+        > "$pkgdir/usr/share/pipewire/filter-chain.conf.d/10-bigsound.conf"
+
+    # Bundled profiles — read by the daemon as fallback when the user
+    # has no profile dir of their own. (Daemon currently looks in
+    # ~/.config/bigsound/profiles/ only — once we add /usr/share/bigsound
+    # as a fallback path in the daemon, packaged installs work without
+    # an `install.sh` step.)
+    install -dm755 "$pkgdir/usr/share/bigsound/profiles"
+    for f in crates/daemon/data/profiles/*.json; do
+        install -Dm644 "$f" "$pkgdir/usr/share/bigsound/profiles/$(basename "$f")"
+    done
+
+    # systemd user unit (auto-start on login when enabled).
+    install -Dm644 crates/daemon/data/bigsound-daemon.service \
+        "$pkgdir/usr/lib/systemd/user/bigsound-daemon.service"
+
+    # Desktop entry (so GNOME / KDE / XFCE menus list "BigSound").
+    install -Dm644 crates/gtk-app/data/com.bigcommunity.BigSound.desktop \
+        "$pkgdir/usr/share/applications/com.bigcommunity.BigSound.desktop"
+
+    # Application icons (full-colour + symbolic).
+    install -Dm644 crates/gtk-app/data/icons/com.bigcommunity.BigSound.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/com.bigcommunity.BigSound.svg"
+    install -Dm644 crates/gtk-app/data/icons/com.bigcommunity.BigSound-symbolic.svg \
+        "$pkgdir/usr/share/icons/hicolor/symbolic/apps/com.bigcommunity.BigSound-symbolic.svg"
+
+    # Translation catalogs (compile .po → .mo on the fly).
+    for po in crates/gtk-app/po/*.po; do
+        [[ -f "$po" ]] || continue
+        lang="$(basename "$po" .po)"
+        install -dm755 "$pkgdir/usr/share/locale/$lang/LC_MESSAGES"
+        msgfmt -o "$pkgdir/usr/share/locale/$lang/LC_MESSAGES/bigsound.mo" "$po"
+    done
+
+    # License.
+    install -Dm644 /dev/stdin "$pkgdir/usr/share/licenses/$pkgname/LICENSE" <<'LICENSE'
+BigSound — System-wide audio enhancement for BigCommunity
+Copyright (C) 2026 Leonardo Athayde / BigCommunity Project
+Licensed under GPL-3.0-or-later.
+LICENSE
+}
+
+# Post-install hint shown to the user via pacman .install hooks.
+# Place this in `bigsound.install` next to the PKGBUILD.

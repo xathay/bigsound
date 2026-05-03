@@ -1,0 +1,8 @@
+[package]
+name = "big-cross"
+description = "Stereo crossfeed (Bauer-style) — fifth BigSound module, Atmos-on-headphones psychoacoustic feel"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+big-bass = { path = "../big-bass" }

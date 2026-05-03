@@ -1,0 +1,14 @@
+[package]
+name = "big-bass"
+description = "Psychoacoustic bass enhancement DSP — first module of BigSound"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+hound.workspace = true
+
+[[bin]]
+name = "big-bass-cli"
+path = "src/bin/big-bass-cli.rs"

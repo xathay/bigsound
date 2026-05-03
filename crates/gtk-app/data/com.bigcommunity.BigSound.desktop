@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=BigSound
+GenericName=Audio Enhancer
+Comment=Live audio enhancement controls (BigBass + BigClarity + BigLoud)
+Comment[pt_BR]=Controles ao vivo de melhoria de áudio (BigBass + BigClarity + BigLoud)
+Exec=bigsound-app
+Icon=com.bigcommunity.BigSound
+Terminal=false
+Categories=AudioVideo;Audio;Settings;
+Keywords=audio;sound;equalizer;bass;dsp;enhancer;loudness;clarity;
+StartupNotify=true
+StartupWMClass=com.bigcommunity.BigSound

@@ -1,0 +1,30 @@
+{
+  "name": "Headphones",
+  "description": "Gentle tuning + crossfeed for an out-of-head, speaker-like soundstage. The Atmos-on-headphones psychoacoustic experience.",
+  "match_patterns": [
+    "alsa_output\\..*::analog-output-headphones$",
+    "alsa_output\\..*::analog-output-headset$",
+    "alsa_output\\..*\\.headphones",
+    "alsa_output\\..*\\.HiFi__Headphone__sink",
+    "alsa_output\\..*\\.headset"
+  ],
+  "params": {
+    "bigbass:target_freq":   60.0,
+    "bigbass:drive":          0.3,
+    "bigbass:mix":            0.25,
+    "bigbass:cut_dry_lows":   0.0,
+    "bigbass:loudness_db":    1.5,
+    "bigclarity:target_freq": 4000.0,
+    "bigclarity:drive":       0.25,
+    "bigclarity:mix":         0.12,
+    "bigspace:width":         1.0,
+    "bigspace:bass_keep_hz": 100.0,
+    "bigspace:mix":           1.0,
+    "bigcross:amount":        0.6,
+    "bigcross:cutoff_hz":   700.0,
+    "bigcross:delay_us":    280.0,
+    "bigloud:amount":         0.4,
+    "bigloud:ceiling_db":    -1.5,
+    "bigloud:mix":            1.0
+  }
+}
