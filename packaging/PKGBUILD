@@ -43,10 +43,18 @@ sha256sums=()
 _root="$(realpath "$startdir/..")"
 
 prepare() {
-    # Populate Cargo's vendor cache once so offline rebuilds are fast
-    # (no-op if already populated).
     cd "$_root"
-    cargo fetch --locked 2>/dev/null || cargo fetch
+    # Reproducible builds need a committed lock file. Fail loudly if it
+    # disappeared rather than silently building against the latest
+    # registry contents.
+    [[ -f Cargo.lock ]] || {
+        echo "ERROR: Cargo.lock missing — required for --frozen build"
+        return 1
+    }
+    # Populate Cargo's vendor cache. Try locked first (uses Cargo.lock
+    # exactly); fall back to non-locked only when --frozen would fail
+    # because of a registry-format upgrade.
+    cargo fetch --locked || cargo fetch || return 1
 }
 
 build() {

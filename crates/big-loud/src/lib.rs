@@ -88,8 +88,11 @@ impl Compressor {
 
     #[inline]
     fn process_stereo(&mut self, l: f32, r: f32) -> (f32, f32) {
-        // Stereo-linked peak detection.
-        let peak = l.abs().max(r.abs()).max(1.0e-10);
+        // Stereo-linked peak detection. Clamping to [1e-10, 1.0] keeps
+        // the log argument finite — guards against NaN inputs (which
+        // would propagate as a NaN gain, silencing or hanging the
+        // signal) and against an Inf squared-overflow in upstream code.
+        let peak = l.abs().max(r.abs()).clamp(1.0e-10, 1.0);
         let peak_db = 20.0 * peak.log10();
 
         // Soft-knee gain reduction calculation.

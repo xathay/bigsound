@@ -248,6 +248,13 @@ fn discover_bigsound_node_id() -> Result<u32> {
 }
 
 fn push_internal_value(node_id: u32, internal: &str, value: f64) -> Result<()> {
+    // Reject non-finite values up front — they'd serialize as the
+    // literal `NaN`/`inf` token in the SPA pod, which pw-cli rejects
+    // and which would, in a worst case, escape into shell-interpretable
+    // tokens if pw-cli's pod parser ever drops to a permissive mode.
+    if !value.is_finite() {
+        bail!("refusing to push non-finite value {} for {}", value, internal);
+    }
     let pod = format!("{{ params = [ \"{internal}\" {value} ] }}");
     let output = Command::new("pw-cli")
         .args(["set-param", &node_id.to_string(), "Props", &pod])
@@ -302,7 +309,9 @@ impl ServiceInner {
     }
 
     fn apply_profile_inner(&self, profile: &Profile) {
-        let mut cache = self.cache.lock().unwrap();
+        // Recover from a poisoned mutex instead of panicking — a panic
+        // in any other handler shouldn't permanently disable the daemon.
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         for (k, v) in &profile.params {
             cache.insert(k.clone(), *v);
         }
@@ -310,7 +319,10 @@ impl ServiceInner {
         let snapshot = cache.clone();
         drop(cache);
         push_cache_to_pipewire(self.node_id, &snapshot);
-        *self.active_profile.lock().unwrap() = Some(profile.name.clone());
+        *self
+            .active_profile
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(profile.name.clone());
     }
 }
 
@@ -396,9 +408,18 @@ impl BigSoundService {
     }
 
     fn save_profile(&self, name: &str) -> zbus::fdo::Result<()> {
-        if name.contains('/') || name.contains('\\') || name.is_empty() {
+        // Tight allowlist — alphanumeric, dash, underscore, space — so
+        // Unicode lookalikes (∕, /, NUL bytes) can't smuggle in a path
+        // separator. Caps profile-name length too so a malicious client
+        // can't fill up disk via long filenames.
+        let valid_name = !name.is_empty()
+            && name.len() <= 64
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ' ');
+        if !valid_name {
             return Err(zbus::fdo::Error::InvalidArgs(
-                "profile name must be a non-empty single segment".into(),
+                "profile name must be 1..=64 ASCII chars: alphanumeric, '-', '_', or space".into(),
             ));
         }
         let cache = self
@@ -431,6 +452,18 @@ impl BigSoundService {
     }
 
     fn delete_profile(&self, name: &str) -> zbus::fdo::Result<()> {
+        // Same allowlist as save_profile — defence in depth even though
+        // the lookup is constrained to 99-user-<name>.json.
+        let valid_name = !name.is_empty()
+            && name.len() <= 64
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ' ');
+        if !valid_name {
+            return Err(zbus::fdo::Error::InvalidArgs(
+                "profile name must be 1..=64 ASCII chars: alphanumeric, '-', '_', or space".into(),
+            ));
+        }
         // Only delete user profiles (the `99-user-*.json` ones we write).
         let path = profiles_dir().join(format!("99-user-{name}.json"));
         if !path.exists() {
@@ -492,7 +525,10 @@ fn run_background(inner: Arc<ServiceInner>) {
             continue;
         }
 
-        let mut last = inner.last_default_sink.lock().unwrap();
+        let mut last = inner
+            .last_default_sink
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let unchanged = last.as_deref() == Some(current.as_str());
         if unchanged {
             continue;
@@ -505,7 +541,7 @@ fn run_background(inner: Arc<ServiceInner>) {
         drop(last);
 
         let profile_to_apply = {
-            let profiles = inner.profiles.lock().unwrap();
+            let profiles = inner.profiles.lock().unwrap_or_else(|e| e.into_inner());
             // Try device-matched profiles first (regex against the
             // `<sink>::<port>` composite). If nothing matches, fall back
             // to the canonical "BigSound" profile — balanced defaults
@@ -541,12 +577,16 @@ fn main() -> Result<()> {
     // Initial push of cache to PipeWire so the running filter-chain
     // matches our defaults from the get-go.
     {
-        let cache = inner.cache.lock().unwrap();
+        let cache = inner.cache.lock().unwrap_or_else(|e| e.into_inner());
         push_cache_to_pipewire(node_id, &cache);
     }
     eprintln!(
         "bigsound-daemon: loaded {} profile(s) from {}",
-        inner.profiles.lock().unwrap().len(),
+        inner
+            .profiles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len(),
         profiles_dir().display()
     );
 
