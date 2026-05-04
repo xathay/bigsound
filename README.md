@@ -1,8 +1,16 @@
-# BigSound
+<p align="center">
+  <img src="assets/icon.png" alt="BigSound" width="128" height="128"/>
+</p>
 
-System-wide audio enhancement for **BigCommunity** — a five-stage Rust DSP
-chain routed through PipeWire's filter-chain, with auto-profile per
-output device and a libadwaita frontend for live tuning.
+<h1 align="center">BigSound</h1>
+
+<p align="center">
+  System-wide audio enhancement for <b>BigCommunity</b> — a five-stage Rust DSP
+  chain routed through PipeWire's filter-chain, with auto-profile per
+  output device and a libadwaita frontend for live tuning.
+</p>
+
+---
 
 Plays nicely with whatever's already running: Firefox, Spotify, MPV,
 Discord, games. Pick "BigSound (DSP)" as your audio output and every app
