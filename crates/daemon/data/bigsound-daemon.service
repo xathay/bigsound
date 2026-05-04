@@ -1,6 +1,6 @@
 [Unit]
 Description=BigSound DSP control daemon
-Documentation=https://github.com/bigcommunity/BigSound
+Documentation=https://github.com/xathay/bigsound
 # Wait for the filter-chain to be live before starting — we need its
 # BigSound sink to exist when the daemon boots.
 After=filter-chain.service pipewire.service
@@ -8,7 +8,11 @@ Wants=filter-chain.service
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/bigsound-daemon
+# Canonical path for packaged installs (PKGBUILD copies binaries to
+# /usr/bin/). The user-local install path differs — `scripts/install.sh`
+# patches this line via sed when dropping the unit in
+# ~/.config/systemd/user/, replacing /usr/bin with $HOME/.local/bin.
+ExecStart=/usr/bin/bigsound-daemon
 Restart=on-failure
 RestartSec=2
 

@@ -145,8 +145,15 @@ done
 ok "$PROFILE_COUNT profile(s) bundled atualizados em $PROFILES_DIR/ (user 99-user-*.json preservados)"
 
 # 6. Install systemd user unit + (re)start the daemon ---------------------
+# The canonical unit file ships with ExecStart=/usr/bin/bigsound-daemon
+# (correct for packaged installs). For this user-local install, patch the
+# path to point at $HOME/.local/bin/bigsound-daemon where install -m 755
+# just placed the binary above.
 mkdir -p "$SYSTEMD_DIR"
-install -m 644 "$BIGSOUND_DIR/crates/daemon/data/bigsound-daemon.service" "$SYSTEMD_DIR/"
+sed "s|^ExecStart=/usr/bin/bigsound-daemon|ExecStart=$BIN_DIR/bigsound-daemon|" \
+    "$BIGSOUND_DIR/crates/daemon/data/bigsound-daemon.service" \
+    > "$SYSTEMD_DIR/bigsound-daemon.service"
+chmod 644 "$SYSTEMD_DIR/bigsound-daemon.service"
 systemctl --user daemon-reload
 systemctl --user enable bigsound-daemon.service >/dev/null 2>&1
 # Restart so the new binary + new node id are picked up.
