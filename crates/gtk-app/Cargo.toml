@@ -10,6 +10,7 @@ libadwaita = { version = "0.7", features = ["v1_4"] }
 zbus.workspace = true
 anyhow.workspace = true
 gettext-rs = { version = "0.7", features = ["gettext-system"] }
+serde_json.workspace = true
 
 [[bin]]
 name = "bigsound-app"
