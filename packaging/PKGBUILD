@@ -2,9 +2,9 @@
 # Contributor: BigCommunity Team
 
 pkgname=bigsound
-pkgver=0.6.0
+pkgver=0.7.0
 pkgrel=1
-pkgdesc='System-wide audio enhancement for BigCommunity (BigBass + BigClarity + BigSpace + BigLoud) with auto-profile per output device'
+pkgdesc='System-wide audio enhancement for BigCommunity (BigBass + BigClarity + BigSpace + BigCross + BigLoud) with auto-profile per output device'
 arch=('x86_64')
 url='https://github.com/xathay/bigsound'
 license=('GPL-3.0-or-later')
