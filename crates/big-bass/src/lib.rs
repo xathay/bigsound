@@ -169,6 +169,7 @@ impl PeakEnvelope {
     }
 }
 
+#[derive(Debug)]
 pub struct BassEnhancerChannel {
     sidechain_bp: [Biquad; 2],
     harmonics_bp: [Biquad; 2],
@@ -302,6 +303,7 @@ impl BassEnhancerChannel {
     }
 }
 
+#[derive(Debug)]
 pub struct BassEnhancer {
     channels: Vec<BassEnhancerChannel>,
     sample_rate: f32,

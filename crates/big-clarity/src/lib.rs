@@ -52,6 +52,7 @@ impl Default for ClarityParams {
     }
 }
 
+#[derive(Debug)]
 pub struct ClarityChannel {
     /// Cascade of two HP biquads = 4th-order Butterworth.
     /// Isolates the high-mid band that will be saturated.
@@ -129,6 +130,7 @@ impl Default for ClarityChannel {
     }
 }
 
+#[derive(Debug)]
 pub struct ClarityProcessor {
     channels: Vec<ClarityChannel>,
     sample_rate: f32,

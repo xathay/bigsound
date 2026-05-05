@@ -40,6 +40,7 @@ impl Default for SpaceParams {
 }
 
 /// Stereo Mid/Side widener with optional bass-keep-mono safety.
+#[derive(Debug)]
 pub struct SpaceProcessor {
     /// 4th-order Butterworth high-pass on the Side path. Cascade of two
     /// biquads at the same cutoff so the bass below `bass_keep_hz` is

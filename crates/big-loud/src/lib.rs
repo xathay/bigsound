@@ -67,6 +67,7 @@ impl Default for LoudnessParams {
 /// Stereo-linked feed-forward compressor. Detection is on the maximum of
 /// |L| and |R| so the gain reduction is applied identically to both
 /// channels — the stereo image stays intact.
+#[derive(Debug)]
 struct Compressor {
     threshold_db: f32,
     ratio: f32,
@@ -155,6 +156,7 @@ impl Compressor {
 /// Stereo-linked peak limiter. Same algorithm as `big_bass::PeakLimiter`
 /// but the detector is the max of both channels so the stereo image
 /// is preserved when the limiter pulls back gain.
+#[derive(Debug)]
 struct StereoPeakLimiter {
     threshold: f32,
     release_coef: f32,
@@ -190,6 +192,7 @@ impl StereoPeakLimiter {
     }
 }
 
+#[derive(Debug)]
 pub struct LoudnessProcessor {
     compressor: Compressor,
     limiter: StereoPeakLimiter,

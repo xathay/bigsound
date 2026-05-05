@@ -68,6 +68,7 @@ impl Default for CrossfeedParams {
 /// Fixed-capacity ring buffer for sample-accurate delay. Heap-allocated
 /// once at construction, then reused without further allocation in the
 /// audio process loop.
+#[derive(Debug)]
 struct RingDelay {
     buf: Vec<f32>,
     write: usize,
@@ -110,6 +111,7 @@ impl RingDelay {
     }
 }
 
+#[derive(Debug)]
 pub struct CrossfeedProcessor {
     /// 4th-order Butterworth low-pass on each cross channel — cascade
     /// of two biquads at the same cutoff so attenuation is steep enough
