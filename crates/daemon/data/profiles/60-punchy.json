@@ -1,6 +1,6 @@
 {
   "name": "Punchy",
-  "description": "FxSound-style aggressive — bass +6dB, full compression, max squash. O feel original do BigSound v0.4 que fazia o usuário dizer 'passthrough é menos da metade do volume'. Bom em laptop / speakers de carro / qualquer cenário onde você quer impacto óbvio. Em fone bom, fica fatigante.",
+  "description": "FxSound-style aggressive — bass +6 dB, full compression, max squash. The original BigSound v0.4 feel that had users saying 'passthrough is less than half the volume'. Good on laptops, car speakers, or anywhere you want obvious impact. Fatiguing on good headphones.",
   "match_patterns": [],
   "params": {
     "bigbass:target_freq":  120.0,

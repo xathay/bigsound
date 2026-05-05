@@ -177,6 +177,56 @@ msgstr "Madrugada"
 msgid "Live / Concert"
 msgstr "Ao Vivo / Concerto"
 
+# === Profile descriptions (canonical English msgid → localised text) ===
+# Shown as the subtitle of the sliders group when a profile is selected.
+# Keep msgid in sync with the "description" field of each profile JSON in
+# crates/daemon/data/profiles/.
+
+msgid "Balanced, hi-fi-friendly default. Lifts the audio noticeably without aggressive coloration — works on any hardware. Auto-applied when no device-specific profile matches, and the recommended starting point for exploring the other profiles."
+msgstr "Padrão balanceado, hi-fi friendly. Realça o áudio de forma perceptível mas sem coloração agressiva — funciona bem em qualquer hardware. É o perfil aplicado automaticamente quando nenhum dispositivo específico casa, e o ponto de partida recomendado para explorar os outros perfis."
+
+msgid "Aggressive bass synthesis + heavy compression for tiny rolled-off speakers; no crossfeed (room provides it physically)"
+msgstr "Síntese agressiva de grave + compressão pesada para alto-falantes pequenos com resposta limitada; sem crossfeed (a sala já fornece fisicamente)"
+
+msgid "Gentle tuning + crossfeed for an out-of-head, speaker-like soundstage. The Atmos-on-headphones psychoacoustic experience."
+msgstr "Tuning suave + crossfeed para palco sonoro fora da cabeça, com sensação de alto-falantes. A experiência psicoacústica de Atmos no fone."
+
+msgid "Maximalist stereo cinema preset for headphones — pushes Bauer crossfeed and bass-aware widening to the edge so films and orchestral mixes feel like a virtual room rather than two speakers strapped to your skull. Auto-match disabled: pick this manually when you want the cinematic mode. (Full HRTF/binaural 7.1 convolution will arrive in a later release.)"
+msgstr "Preset cinema estéreo maximalista para fones — leva o crossfeed Bauer e o alargamento ciente do grave até o limite, para que filmes e mixagens orquestrais soem como uma sala virtual em vez de duas caixas presas à cabeça. Auto-aplicação desligada: selecione manualmente quando quiser o modo cinematográfico. (Convolução HRTF/binaural 7.1 completa virá em release futura.)"
+
+msgid "Codec-aware tuning for BT speakers and headphones: extra treble exciter to claw back the SBC/AAC rolloff above ~12 kHz, modest crossfeed for headphone use, and a slightly higher target_freq on the bass enhancer because BT codecs aggressively trim sub-60 Hz content."
+msgstr "Tuning ciente do codec para alto-falantes e fones BT: exciter de agudos extra para recuperar o rolloff de SBC/AAC acima de ~12 kHz, crossfeed moderado para uso com fones, e target_freq um pouco mais alto no realçador de grave porque os codecs BT cortam agressivamente o conteúdo abaixo de 60 Hz."
+
+msgid "Neutral tuning for TV / external display speakers — variable hardware, conservative defaults"
+msgstr "Tuning neutro para TVs e displays externos — hardware variável, padrões conservadores"
+
+msgid "Mastering-grade transparency — minimal coloration, true dynamics preserved. Use for critical listening, mixing, A/B reference. The chain becomes nearly invisible: only the peak limiter stays as a safety net."
+msgstr "Transparência de masterização — coloração mínima, dinâmica preservada. Use para escuta crítica, mixagem, referência A/B. A cadeia fica praticamente invisível: só o peak limiter permanece como rede de segurança."
+
+msgid "Immersive, wide soundstage with cinematic bass impact. Closest free equivalent to Dolby Atmos for stereo content: aggressive widening + crossfeed (so it works on headphones AND speakers) + tasteful low-end push. For films, trailers, big-room mixes."
+msgstr "Palco sonoro imersivo e amplo com impacto de grave cinematográfico. Equivalente livre mais próximo do Dolby Atmos para conteúdo estéreo: alargamento agressivo + crossfeed (funciona em fones E alto-falantes) + reforço de grave com bom gosto. Para filmes, trailers e mixagens de grande ambiente."
+
+msgid "Wide stereo for positional audio, preserved transients (no compression squashing footsteps), bass impact for explosions/UI. Crossfeed enabled so headset gamers hear the soundstage out-of-head — easier to localize enemies."
+msgstr "Estéreo amplo para áudio posicional, transientes preservados (sem compressão esmagando passos), impacto de grave para explosões e UI. Crossfeed ativo para que o jogador de headset ouça o palco fora da cabeça — facilita localizar inimigos."
+
+msgid "Vocal clarity boost + heavy compression for consistent talk-radio level. Stereo image kept narrow (close to mono) — speech is centred anyway and widening makes lispy sibilance worse."
+msgstr "Reforço de clareza vocal + compressão pesada para nível constante tipo talk-radio. Imagem estéreo mantida estreita (próxima do mono) — a fala já fica no centro e o alargamento piora sibilância e ceceio."
+
+msgid "EDM, hip-hop, dubstep — maximum sub-bass psychoacoustics, restrained treble (so it doesn't shrill on hot mixes), wide image, hard compression for club-loud impact."
+msgstr "EDM, hip-hop, dubstep — psicoacústica de sub-grave no máximo, agudos contidos (para não ferir em mixagens hot), imagem ampla, compressão pesada para impacto de pista de clube."
+
+msgid "Quiet listening that doesn't disturb others — bass is rolled off (thumps travel through walls), heavy compression keeps everything at a constant level so you don't crank-up-then-startle on a sudden loud bit. Vocal-clarity bump so you don't lose dialogue at low volume."
+msgstr "Escuta silenciosa sem incomodar os outros — grave atenuado (batidas viajam pelas paredes), compressão pesada mantém tudo num nível constante para não levar susto em trecho mais alto. Reforço de clareza vocal para não perder diálogo em volume baixo."
+
+msgid "For dedicated headphones / hi-fi speakers and FLAC/WAV sources. Almost no coloration, full dynamics preserved (the recording's macro and micro dynamics remain intact), with just enough crossfeed to escape the in-head image of headphones. Compression is essentially off — peak limiter only catches actual digital overs."
+msgstr "Para fones dedicados / alto-falantes hi-fi e fontes FLAC/WAV. Praticamente sem coloração, dinâmica preservada por completo (macro e micro dinâmica da gravação intactas), com crossfeed apenas o suficiente para escapar da imagem dentro da cabeça dos fones. Compressão essencialmente desligada — o peak limiter só atua em overs digitais reais."
+
+msgid "Live recordings, Tiny Desk-style sessions, concert bootlegs — wide stereo image to suggest the venue, slight bass push for kick-drum punch, exciter on cymbals and brushes, moderate compression so audience-noise spikes don't startle."
+msgstr "Gravações ao vivo, sessões estilo Tiny Desk, bootlegs de show — imagem estéreo ampla para sugerir o ambiente, leve reforço de grave para o punch do bumbo, exciter em pratos e vassourinhas, compressão moderada para que picos de plateia não assustem."
+
+msgid "FxSound-style aggressive — bass +6 dB, full compression, max squash. The original BigSound v0.4 feel that had users saying 'passthrough is less than half the volume'. Good on laptops, car speakers, or anywhere you want obvious impact. Fatiguing on good headphones."
+msgstr "Agressivo no estilo FxSound — grave +6 dB, compressão completa, esmagamento máximo. O feel original do BigSound v0.4, que fazia o usuário dizer 'passthrough é menos da metade do volume'. Bom em laptop, alto-falantes de carro, ou qualquer cenário em que você quer impacto óbvio. Em fone bom, fica fatigante."
+
 # === Error messages ===
 
 msgid "BigSound app: cannot reach session bus"
