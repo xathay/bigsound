@@ -1,19 +1,19 @@
 {
   "name": "Bluetooth",
-  "description": "Limited-bandwidth tuning for BT speakers/headphones. Light crossfeed assumes BT headphones.",
+  "description": "Codec-aware tuning for BT speakers and headphones: extra treble exciter to claw back the SBC/AAC rolloff above ~12 kHz, modest crossfeed for headphone use, and a slightly higher target_freq on the bass enhancer because BT codecs aggressively trim sub-60 Hz content.",
   "match_patterns": [
     "bluez_output\\..*",
     "bluez_sink\\..*"
   ],
   "params": {
-    "bigbass:target_freq":  100.0,
-    "bigbass:drive":          0.45,
-    "bigbass:mix":            0.4,
+    "bigbass:target_freq":   85.0,
+    "bigbass:drive":          0.5,
+    "bigbass:mix":            0.42,
     "bigbass:cut_dry_lows":   0.0,
     "bigbass:loudness_db":    3.5,
-    "bigclarity:target_freq": 3000.0,
-    "bigclarity:drive":       0.35,
-    "bigclarity:mix":         0.2,
+    "bigclarity:target_freq": 2800.0,
+    "bigclarity:drive":       0.5,
+    "bigclarity:mix":         0.32,
     "bigspace:width":         1.15,
     "bigspace:bass_keep_hz": 150.0,
     "bigspace:mix":           1.0,
