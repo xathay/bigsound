@@ -2,69 +2,19 @@
 //! `ladspa_descriptor` symbol PipeWire's filter-chain module loads to
 //! place BigBass into the system-wide audio path.
 //!
-//! LADSPA is a minimal C ABI: see <https://www.ladspa.org/>.
+//! The C-ABI scaffolding lives in `ladspa-wrapper`.
 
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
 use big_bass::{BassEnhancer, BassEnhancerParams};
-use std::ffi::c_ulong;
-use std::os::raw::{c_char, c_void};
-
-// LADSPA constants ------------------------------------------------------------
-
-const LADSPA_PROPERTY_HARD_RT_CAPABLE: i32 = 0x4;
-
-const LADSPA_PORT_INPUT: i32 = 0x1;
-const LADSPA_PORT_OUTPUT: i32 = 0x2;
-const LADSPA_PORT_CONTROL: i32 = 0x4;
-const LADSPA_PORT_AUDIO: i32 = 0x8;
-
-const LADSPA_HINT_BOUNDED_BELOW: i32 = 0x1;
-const LADSPA_HINT_BOUNDED_ABOVE: i32 = 0x2;
-const LADSPA_HINT_TOGGLED: i32 = 0x4;
-const LADSPA_HINT_DEFAULT_LOW: i32 = 0x80;
-const LADSPA_HINT_DEFAULT_MIDDLE: i32 = 0xC0;
-const LADSPA_HINT_DEFAULT_HIGH: i32 = 0x100;
-const LADSPA_HINT_DEFAULT_0: i32 = 0x200;
-
-// LADSPA structs --------------------------------------------------------------
-
-#[repr(C)]
-struct PortRangeHint {
-    hint_descriptor: i32,
-    lower_bound: f32,
-    upper_bound: f32,
-}
-
-#[repr(C)]
-struct Descriptor {
-    unique_id: c_ulong,
-    label: *const c_char,
-    properties: i32,
-    name: *const c_char,
-    maker: *const c_char,
-    copyright: *const c_char,
-    port_count: c_ulong,
-    port_descriptors: *const i32,
-    port_names: *const *const c_char,
-    port_range_hints: *const PortRangeHint,
-    impl_data: *mut c_void,
-    instantiate: Option<unsafe extern "C" fn(*const Descriptor, c_ulong) -> *mut c_void>,
-    connect_port: Option<unsafe extern "C" fn(*mut c_void, c_ulong, *mut f32)>,
-    activate: Option<unsafe extern "C" fn(*mut c_void)>,
-    run: Option<unsafe extern "C" fn(*mut c_void, c_ulong)>,
-    run_adding: Option<unsafe extern "C" fn(*mut c_void, c_ulong)>,
-    set_run_adding_gain: Option<unsafe extern "C" fn(*mut c_void, f32)>,
-    deactivate: Option<unsafe extern "C" fn(*mut c_void)>,
-    cleanup: Option<unsafe extern "C" fn(*mut c_void)>,
-}
-
-unsafe impl Sync for Descriptor {}
-
-#[repr(transparent)]
-struct CCharPtrArray<const N: usize>([*const c_char; N]);
-unsafe impl<const N: usize> Sync for CCharPtrArray<N> {}
+use ladspa_wrapper::{
+    c_char, c_ulong, c_void, read_control, CCharPtrArray, Descriptor, PortRangeHint,
+    LADSPA_HINT_BOUNDED_ABOVE, LADSPA_HINT_BOUNDED_BELOW, LADSPA_HINT_DEFAULT_0,
+    LADSPA_HINT_DEFAULT_HIGH, LADSPA_HINT_DEFAULT_LOW, LADSPA_HINT_DEFAULT_MIDDLE,
+    LADSPA_HINT_TOGGLED, LADSPA_PORT_AUDIO, LADSPA_PORT_CONTROL, LADSPA_PORT_INPUT,
+    LADSPA_PORT_OUTPUT, LADSPA_PROPERTY_HARD_RT_CAPABLE, NO_HINT,
+};
 
 // Port layout -----------------------------------------------------------------
 
@@ -142,16 +92,8 @@ static PORT_HINTS: [PortRangeHint; PORT_COUNT] = [
         lower_bound: -12.0,
         upper_bound: 12.0,
     },
-    PortRangeHint {
-        hint_descriptor: 0,
-        lower_bound: 0.0,
-        upper_bound: 0.0,
-    },
-    PortRangeHint {
-        hint_descriptor: 0,
-        lower_bound: 0.0,
-        upper_bound: 0.0,
-    },
+    NO_HINT,
+    NO_HINT,
 ];
 
 // Plugin metadata. UniqueID 7000-9999 is the LADSPA "experimental/personal"
@@ -238,31 +180,11 @@ unsafe extern "C" fn run(handle: *mut c_void, sample_count: c_ulong) {
     let inst = unsafe { &mut *(handle as *mut Instance) };
 
     // Snapshot control values; PipeWire only updates them between blocks.
-    let target = if inst.port_target_freq.is_null() {
-        100.0
-    } else {
-        unsafe { *inst.port_target_freq }
-    };
-    let drive = if inst.port_drive.is_null() {
-        0.6
-    } else {
-        unsafe { *inst.port_drive }
-    };
-    let mix = if inst.port_mix.is_null() {
-        0.5
-    } else {
-        unsafe { *inst.port_mix }
-    };
-    let cut = if inst.port_cut_dry.is_null() {
-        0.0
-    } else {
-        unsafe { *inst.port_cut_dry }
-    };
-    let loudness = if inst.port_loudness.is_null() {
-        4.0
-    } else {
-        unsafe { *inst.port_loudness }
-    };
+    let target = unsafe { read_control(inst.port_target_freq, 100.0) };
+    let drive = unsafe { read_control(inst.port_drive, 0.6) };
+    let mix = unsafe { read_control(inst.port_mix, 0.5) };
+    let cut = unsafe { read_control(inst.port_cut_dry, 0.0) };
+    let loudness = unsafe { read_control(inst.port_loudness, 4.0) };
 
     let params = BassEnhancerParams {
         target_freq: target.clamp(40.0, 300.0),
@@ -298,9 +220,5 @@ unsafe extern "C" fn cleanup(handle: *mut c_void) {
 
 #[no_mangle]
 pub extern "C" fn ladspa_descriptor(index: c_ulong) -> *const c_void {
-    if index == 0 {
-        &DESCRIPTOR as *const Descriptor as *const c_void
-    } else {
-        std::ptr::null()
-    }
+    unsafe { ladspa_wrapper::descriptor_or_null(index, &DESCRIPTOR) }
 }

@@ -4,56 +4,12 @@
 #![allow(non_upper_case_globals)]
 
 use big_clarity::{ClarityParams, ClarityProcessor};
-use std::ffi::c_ulong;
-use std::os::raw::{c_char, c_void};
-
-const LADSPA_PROPERTY_HARD_RT_CAPABLE: i32 = 0x4;
-
-const LADSPA_PORT_INPUT: i32 = 0x1;
-const LADSPA_PORT_OUTPUT: i32 = 0x2;
-const LADSPA_PORT_CONTROL: i32 = 0x4;
-const LADSPA_PORT_AUDIO: i32 = 0x8;
-
-const LADSPA_HINT_BOUNDED_BELOW: i32 = 0x1;
-const LADSPA_HINT_BOUNDED_ABOVE: i32 = 0x2;
-const LADSPA_HINT_DEFAULT_LOW: i32 = 0x80;
-const LADSPA_HINT_DEFAULT_MIDDLE: i32 = 0xC0;
-
-#[repr(C)]
-struct PortRangeHint {
-    hint_descriptor: i32,
-    lower_bound: f32,
-    upper_bound: f32,
-}
-
-#[repr(C)]
-struct Descriptor {
-    unique_id: c_ulong,
-    label: *const c_char,
-    properties: i32,
-    name: *const c_char,
-    maker: *const c_char,
-    copyright: *const c_char,
-    port_count: c_ulong,
-    port_descriptors: *const i32,
-    port_names: *const *const c_char,
-    port_range_hints: *const PortRangeHint,
-    impl_data: *mut c_void,
-    instantiate: Option<unsafe extern "C" fn(*const Descriptor, c_ulong) -> *mut c_void>,
-    connect_port: Option<unsafe extern "C" fn(*mut c_void, c_ulong, *mut f32)>,
-    activate: Option<unsafe extern "C" fn(*mut c_void)>,
-    run: Option<unsafe extern "C" fn(*mut c_void, c_ulong)>,
-    run_adding: Option<unsafe extern "C" fn(*mut c_void, c_ulong)>,
-    set_run_adding_gain: Option<unsafe extern "C" fn(*mut c_void, f32)>,
-    deactivate: Option<unsafe extern "C" fn(*mut c_void)>,
-    cleanup: Option<unsafe extern "C" fn(*mut c_void)>,
-}
-
-unsafe impl Sync for Descriptor {}
-
-#[repr(transparent)]
-struct CCharPtrArray<const N: usize>([*const c_char; N]);
-unsafe impl<const N: usize> Sync for CCharPtrArray<N> {}
+use ladspa_wrapper::{
+    c_char, c_ulong, c_void, read_control, CCharPtrArray, Descriptor, PortRangeHint,
+    LADSPA_HINT_BOUNDED_ABOVE, LADSPA_HINT_BOUNDED_BELOW, LADSPA_HINT_DEFAULT_LOW,
+    LADSPA_HINT_DEFAULT_MIDDLE, LADSPA_PORT_AUDIO, LADSPA_PORT_CONTROL, LADSPA_PORT_INPUT,
+    LADSPA_PORT_OUTPUT, LADSPA_PROPERTY_HARD_RT_CAPABLE, NO_HINT,
+};
 
 const PORT_TARGET_FREQ: usize = 0;
 const PORT_DRIVE: usize = 1;
@@ -106,8 +62,8 @@ static PORT_HINTS: [PortRangeHint; PORT_COUNT] = [
         lower_bound: 0.0,
         upper_bound: 1.0,
     },
-    PortRangeHint { hint_descriptor: 0, lower_bound: 0.0, upper_bound: 0.0 },
-    PortRangeHint { hint_descriptor: 0, lower_bound: 0.0, upper_bound: 0.0 },
+    NO_HINT,
+    NO_HINT,
 ];
 
 static LABEL: &[u8] = b"big_clarity\0";
@@ -183,21 +139,9 @@ unsafe extern "C" fn activate(handle: *mut c_void) {
 unsafe extern "C" fn run(handle: *mut c_void, sample_count: c_ulong) {
     let inst = unsafe { &mut *(handle as *mut Instance) };
 
-    let target = if inst.port_target_freq.is_null() {
-        3500.0
-    } else {
-        unsafe { *inst.port_target_freq }
-    };
-    let drive = if inst.port_drive.is_null() {
-        0.4
-    } else {
-        unsafe { *inst.port_drive }
-    };
-    let mix = if inst.port_mix.is_null() {
-        0.3
-    } else {
-        unsafe { *inst.port_mix }
-    };
+    let target = unsafe { read_control(inst.port_target_freq, 3500.0) };
+    let drive = unsafe { read_control(inst.port_drive, 0.4) };
+    let mix = unsafe { read_control(inst.port_mix, 0.3) };
 
     let params = ClarityParams {
         target_freq: target.clamp(1500.0, 8000.0),
@@ -229,9 +173,5 @@ unsafe extern "C" fn cleanup(handle: *mut c_void) {
 
 #[no_mangle]
 pub extern "C" fn ladspa_descriptor(index: c_ulong) -> *const c_void {
-    if index == 0 {
-        &DESCRIPTOR as *const Descriptor as *const c_void
-    } else {
-        std::ptr::null()
-    }
+    unsafe { ladspa_wrapper::descriptor_or_null(index, &DESCRIPTOR) }
 }

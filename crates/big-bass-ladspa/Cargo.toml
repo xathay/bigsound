@@ -10,3 +10,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 big-bass = { path = "../big-bass" }
+ladspa-wrapper = { path = "../ladspa-wrapper" }
