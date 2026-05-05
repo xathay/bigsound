@@ -91,7 +91,7 @@ systemctl --user enable --now filter-chain.service bigsound-daemon.service
 
 Then open *Settings → Sound → Output* and pick **BigSound (DSP)**.
 
-### From source (no root needed)
+### From source
 
 ```bash
 git clone https://github.com/xathay/bigsound.git
@@ -100,10 +100,11 @@ cd bigsound
 ```
 
 The script builds in release mode, installs LADSPA plugins to
-`~/.ladspa/`, drops the PipeWire filter-chain config in
-`~/.config/pipewire/filter-chain.conf.d/`, and starts the daemon.
-Requires `pipewire >= 1.0`, `gtk4`, `libadwaita`, `gettext`, and a Rust
-toolchain.
+`/usr/lib/ladspa/` (one sudo prompt — PipeWire 1.6+ refuses to load
+LADSPA plugins from `$HOME`), drops the PipeWire filter-chain config
+in `~/.config/pipewire/filter-chain.conf.d/`, and starts the daemon.
+Everything else is user-local. Requires `pipewire >= 1.0`, `gtk4`,
+`libadwaita`, `gettext`, and a Rust toolchain.
 
 ## Use
 
