@@ -11,6 +11,34 @@
 //! 2-3 band Linkwitz-Riley split with per-band compression — the canonical
 //! multiband-loudness architecture used by FxSound, MaxxAudio and others.
 
+/// Compressor amount (0..=1) maps linearly onto threshold and ratio:
+///   threshold_dB = THRESHOLD_AT_ZERO_DB - THRESHOLD_RANGE_DB * amount
+///   ratio        = RATIO_AT_ZERO + RATIO_RANGE * amount
+/// At amount=0 the compressor is effectively unity (1:1 ratio); at
+/// amount=1 it squashes 6:1 above -24 dBFS.
+const THRESHOLD_AT_ZERO_DB: f32 = -6.0;
+const THRESHOLD_RANGE_DB: f32 = 18.0;
+const RATIO_AT_ZERO: f32 = 1.0;
+const RATIO_RANGE: f32 = 5.0;
+
+/// Soft-knee width in dB — quadratic transition from no-compression to
+/// the linear-above-threshold regime.
+const KNEE_DB: f32 = 6.0;
+
+/// Compressor envelope timings. 10 ms attack lets transients punch through
+/// before the gain reduction clamps; 80 ms release feels musical without
+/// pumping on sustained content.
+const COMPRESSOR_ATTACK_MS: f32 = 10.0;
+const COMPRESSOR_RELEASE_MS: f32 = 80.0;
+
+/// Output limiter release. Same rationale as big-bass: fast enough not to
+/// choke transients, slow enough not to pump.
+const LIMITER_RELEASE_MS: f32 = 50.0;
+
+/// Floor used to clamp the peak before log10 — guards against NaN inputs
+/// and Inf squared-overflow upstream. ~ -200 dBFS, well below dither.
+const PEAK_FLOOR: f32 = 1.0e-10;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LoudnessParams {
     /// Compression amount 0..=1. Internally maps to threshold + ratio +
@@ -75,9 +103,9 @@ impl Compressor {
     /// — the FxSound trick.
     fn set_amount(&mut self, amount: f32, target_ceiling_db: f32) {
         let a = amount.clamp(0.0, 1.0);
-        self.threshold_db = -6.0 - 18.0 * a; // a=0 → -6 dB, a=1 → -24 dB
-        self.ratio = 1.0 + 5.0 * a; // a=0 → 1:1, a=1 → 6:1
-        self.knee_db = 6.0;
+        self.threshold_db = THRESHOLD_AT_ZERO_DB - THRESHOLD_RANGE_DB * a;
+        self.ratio = RATIO_AT_ZERO + RATIO_RANGE * a;
+        self.knee_db = KNEE_DB;
 
         // Expected gain reduction for a 0 dBFS input peak, in dB.
         let max_over = -self.threshold_db;
@@ -88,11 +116,8 @@ impl Compressor {
 
     #[inline]
     fn process_stereo(&mut self, l: f32, r: f32) -> (f32, f32) {
-        // Stereo-linked peak detection. Clamping to [1e-10, 1.0] keeps
-        // the log argument finite — guards against NaN inputs (which
-        // would propagate as a NaN gain, silencing or hanging the
-        // signal) and against an Inf squared-overflow in upstream code.
-        let peak = l.abs().max(r.abs()).clamp(1.0e-10, 1.0);
+        // Stereo-linked peak detection. Clamp keeps the log argument finite.
+        let peak = l.abs().max(r.abs()).clamp(PEAK_FLOOR, 1.0);
         let peak_db = 20.0 * peak.log10();
 
         // Soft-knee gain reduction calculation.
@@ -174,11 +199,8 @@ pub struct LoudnessProcessor {
 impl LoudnessProcessor {
     pub fn new(sample_rate: f32, params: LoudnessParams) -> Self {
         let mut s = Self {
-            // Attack 10 ms (instead of fast 5 ms) lets transients punch
-            // through before the compressor clamps — drums feel "alive"
-            // rather than squashed. Release 80 ms is a musical default.
-            compressor: Compressor::new(sample_rate, 10.0, 80.0),
-            limiter: StereoPeakLimiter::new(sample_rate, params.ceiling_db, 50.0),
+            compressor: Compressor::new(sample_rate, COMPRESSOR_ATTACK_MS, COMPRESSOR_RELEASE_MS),
+            limiter: StereoPeakLimiter::new(sample_rate, params.ceiling_db, LIMITER_RELEASE_MS),
             params,
         };
         s.apply_params();

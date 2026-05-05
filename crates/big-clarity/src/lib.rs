@@ -12,6 +12,20 @@
 
 use big_bass::biquad::{Biquad, BiquadCoeffs};
 
+/// Anti-denormal DC seed (see big-bass for rationale).
+const DENORMAL_SEED: f32 = 1.0e-20;
+
+/// Drive knob (0..=1) maps to a tanh pre-gain in [DRIVE_MIN..=DRIVE_MAX].
+const DRIVE_MIN: f32 = 1.0;
+const DRIVE_MAX: f32 = 10.0;
+
+/// Anti-alias low-pass on the saturator output. Cap at ANTI_ALIAS_MAX_HZ
+/// (16 kHz: above the brilliance band, below the most fragile region of
+/// hearing) but always stay ANTI_ALIAS_NYQUIST_MARGIN_HZ below Nyquist so
+/// higher-order tanh harmonics don't fold into the audible band.
+const ANTI_ALIAS_MAX_HZ: f32 = 16000.0;
+const ANTI_ALIAS_NYQUIST_MARGIN_HZ: f32 = 200.0;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ClarityParams {
     /// Lower edge of the band that gets excited (Hz). Above this, the
@@ -70,9 +84,7 @@ impl ClarityChannel {
             f.set_coeffs(hp);
         }
 
-        // Anti-alias LP — placed below Nyquist with margin so the
-        // saturator's higher-order harmonics don't fold back into hearing.
-        let lp_freq = (sample_rate * 0.5 - 200.0).min(16000.0);
+        let lp_freq = (sample_rate * 0.5 - ANTI_ALIAS_NYQUIST_MARGIN_HZ).min(ANTI_ALIAS_MAX_HZ);
         let lp = BiquadCoeffs::lowpass(sample_rate, lp_freq, 0.707);
         for f in &mut self.output_lp {
             f.set_coeffs(lp);
@@ -85,7 +97,7 @@ impl ClarityChannel {
             return input;
         }
 
-        let input_safe = input + 1.0e-20;
+        let input_safe = input + DENORMAL_SEED;
 
         // Isolate the high-mid band.
         let mut hf = input_safe;
@@ -98,7 +110,7 @@ impl ClarityChannel {
         // harmonics would sound "fuzzy" / "tube-warm" — wrong vibe for
         // sparkle. Dividing by drive normalises the output level so the
         // drive knob doesn't double as a volume knob.
-        let drive = 1.0 + params.drive * 9.0;
+        let drive = DRIVE_MIN + params.drive * (DRIVE_MAX - DRIVE_MIN);
         let saturated = (drive * hf).tanh() / drive;
 
         // Bandlimit to remove inaudible/aliased content.
