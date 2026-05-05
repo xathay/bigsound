@@ -1,6 +1,6 @@
 {
   "name": "BigSound",
-  "description": "Padrão balanceado, hi-fi friendly. Realça o áudio de forma perceptível mas sem coloração agressiva — funciona bem em qualquer hardware. É o profile aplicado automaticamente quando nenhum device-specific casa, e o ponto de partida recomendado pra explorar os outros profiles.",
+  "description": "Balanced, hi-fi-friendly default. Lifts the audio noticeably without aggressive coloration — works on any hardware. Auto-applied when no device-specific profile matches, and the recommended starting point for exploring the other profiles.",
   "match_patterns": [],
   "params": {
     "bigbass:target_freq":   90.0,
