@@ -141,6 +141,9 @@ msgstr "Alto-falante de Laptop"
 msgid "Headphones"
 msgstr "Fones de Ouvido"
 
+msgid "Headphones - Cinema"
+msgstr "Fones de Ouvido — Cinema"
+
 msgid "Bluetooth"
 msgstr "Bluetooth"
 

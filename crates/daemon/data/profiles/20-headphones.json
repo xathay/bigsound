@@ -6,7 +6,11 @@
     "alsa_output\\..*::analog-output-headset$",
     "alsa_output\\..*\\.headphones",
     "alsa_output\\..*\\.HiFi__Headphone__sink",
-    "alsa_output\\..*\\.headset"
+    "alsa_output\\..*\\.headset",
+    "alsa_output\\.usb-.*::iec958-stereo$",
+    "alsa_output\\.usb-.*::analog-stereo$",
+    "alsa_output\\.usb-.*-headphones",
+    "alsa_output\\.usb-.*\\.HiFi__Headphone__sink"
   ],
   "params": {
     "bigbass:target_freq":   60.0,
