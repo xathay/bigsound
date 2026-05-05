@@ -81,6 +81,18 @@ impl Bus {
             .unwrap_or_default()
     }
 
+    /// Pull the human-readable description out of a profile JSON. The
+    /// daemon's GetProfile RPC returns the full Profile struct serialised;
+    /// we only care about `name` + `description` for the UI badge.
+    fn profile_description(&self, name: &str) -> Option<String> {
+        let json: String = self.proxy().ok()?.call("GetProfile", &(name,)).ok()?;
+        let value: serde_json::Value = serde_json::from_str(&json).ok()?;
+        value
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+    }
+
     fn apply_profile(&self, name: &str) {
         if let Ok(p) = self.proxy() {
             let _ = p.call::<_, _, ()>("ApplyProfile", &(name,));
@@ -240,6 +252,7 @@ fn show_about_window(parent: &impl IsA<gtk::Window>) {
 fn build_profile_dropdown(
     bus: &Bus,
     scales: Rc<RefCell<Vec<(gtk::Scale, SliderSpec)>>>,
+    profile_group: adw::PreferencesGroup,
 ) -> gtk::DropDown {
     let canonical_names = bus.list_profiles();
     let display_names: Vec<String> = canonical_names.iter().map(|n| tr(n)).collect();
@@ -253,6 +266,14 @@ fn build_profile_dropdown(
         ))
         .build();
 
+    let update_group_for = |bus: &Bus, group: &adw::PreferencesGroup, name: &str| {
+        group.set_title(&tr(name));
+        match bus.profile_description(name) {
+            Some(desc) if !desc.is_empty() => group.set_description(Some(&tr(&desc))),
+            _ => group.set_description(None),
+        }
+    };
+
     // Pre-select whatever the daemon reports as active. If the daemon
     // hasn't applied anything yet, fall back to "BigSound" (the OOB
     // balanced default) so the dropdown matches the cache initial state.
@@ -262,6 +283,9 @@ fn build_profile_dropdown(
     if let Some(active) = active_name {
         if let Some(idx) = canonical_names.iter().position(|n| n == &active) {
             dd.set_selected(idx as u32);
+        }
+        if let Some(name) = canonical_names.get(dd.selected() as usize) {
+            update_group_for(bus, &profile_group, name);
         }
     }
 
@@ -278,6 +302,7 @@ fn build_profile_dropdown(
             return;
         };
         bus.apply_profile(name);
+        update_group_for(&bus, &profile_group, name);
         for (scale, spec) in scales.borrow().iter() {
             if let Some(v) = bus.get(spec.param) {
                 programmatic_for_handler.set(true);
@@ -366,18 +391,22 @@ fn build_window(app: &adw::Application, bus: Bus) {
     }
     header.pack_start(&about_btn);
 
-    // Profile dropdown on the right side of the header.
-    let profile_dd = build_profile_dropdown(&bus, scales.clone());
-    header.pack_end(&profile_dd);
-
     main_box.append(&header);
 
     let page = adw::PreferencesPage::new();
     page.set_vexpand(true);
-    let group = adw::PreferencesGroup::builder()
-        .title(tr("DSP"))
-        .description(tr("System-wide audio enhancement — set output to BigSound (DSP) in Sound settings."))
-        .build();
+
+    // Single sliders group — its title and description are repurposed
+    // as the *active profile* indicator so the user sees what preset
+    // is loaded without an extra block above. The dropdown handler
+    // refreshes both fields whenever the selection changes.
+    let group = adw::PreferencesGroup::new();
+
+    // Profile dropdown on the right side of the header. The dropdown
+    // owns the group so its selection-changed handler can refresh the
+    // title + description in place.
+    let profile_dd = build_profile_dropdown(&bus, scales.clone(), group.clone());
+    header.pack_end(&profile_dd);
 
     for spec in slider_specs() {
         group.add(&build_slider_row(&spec, &bus, &scales));

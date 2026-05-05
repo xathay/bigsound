@@ -75,21 +75,8 @@ without our daemon being in the audio loop.
 
 Plug headphones, switch to Bluetooth, change to HDMI — BigSound
 detects the active output (sink + port via PipeWire) and applies a
-matching profile automatically. No clicking, no fiddling.
-
-Built-in profiles:
-
-- **Laptop Speaker** — aggressive bass + heavy compression for tiny
-  rolled-off speakers
-- **Headphones** — gentle, dynamics preserved, crossfeed on
-- **Bluetooth** — bandwidth-aware tuning for BT codec losses
-- **HDMI / TV** — neutral, conservative defaults
-- **BigSound** (fallback) — balanced hi-fi-friendly default that works
-  on any unknown hardware
-
-Plus 10 hand-crafted manual presets: *Studio Reference*, *Atmos / Cinema*,
-*Headphones - Cinema*, *Audiophile*, *Punchy*, *Gaming*, *Voice / Podcast*,
-*Bass Heavy*, *Late Night*, *Live / Concert*.
+matching profile automatically. No clicking, no fiddling. See the
+[Profiles](#profiles) section below for the full catalogue.
 
 ## Install
 
@@ -158,23 +145,80 @@ the matching profile.
 
 ## Profiles
 
-| Profile              | Auto-applies to                            | Character               |
+BigSound ships with 15 profiles. Five auto-apply by output device; ten
+are manual presets you pick from the dropdown for a specific intent.
+
+### Auto-applied (by output device)
+
+| Profile              | Detects                                    | Character               |
 |----------------------|--------------------------------------------|-------------------------|
-| Laptop Speaker       | `alsa_output.pci-*::analog-output-speaker` | Aggressive bass + comp  |
-| Headphones           | `*::analog-output-headphones`, headsets    | Gentle, dynamics intact |
-| Bluetooth            | `bluez_output.*`                           | Bandwidth-aware         |
-| HDMI / TV            | `*.hdmi-*`                                 | Neutral                 |
-| BigSound             | (fallback for unknown hardware)            | Balanced hi-fi          |
-| Studio Reference     | manual                                     | Transparent / passthrough |
-| Atmos / Cinema       | manual                                     | Wide + crossfeed + bass |
-| Headphones - Cinema  | manual                                     | Maximalist Bauer crossfeed for stereo cinema content (no HRTF yet) |
-| Audiophile           | manual                                     | Minimal coloration      |
-| Punchy               | manual                                     | FxSound-style aggressive |
-| Gaming               | manual                                     | Wide stereo, transients |
-| Voice / Podcast      | manual                                     | Vocal clarity, comp     |
-| Bass Heavy           | manual                                     | Maximum sub-bass        |
-| Late Night           | manual                                     | Bass cut, heavy comp    |
-| Live / Concert       | manual                                     | Venue-feel widening     |
+| **Laptop Speaker**   | `alsa_output.pci-*::analog-output-speaker` | Aggressive bass synthesis + heavy compression — tiny speakers can't reproduce bass, so we synthesise the harmonic series and let your brain reconstruct the missing fundamental |
+| **Headphones**       | `*::analog-output-headphones`, headsets    | Gentle tuning with crossfeed on — escapes the "music inside your skull" feeling that pure stereo causes on headphones |
+| **Bluetooth**        | `bluez_output.*`                           | Codec-aware: extra treble exciter to claw back the SBC/AAC roll-off above 12 kHz, and a bass enhancer tuned for what BT codecs actually preserve |
+| **HDMI / TV**        | `*.hdmi-*`, HDMI sinks                     | Conservative neutral — TV speakers vary too much to be aggressive |
+| **BigSound**         | fallback when no rule matches              | Balanced, hi-fi-friendly — the default starting point |
+
+### Manual presets (by intent)
+
+Pick from the dropdown when you want a specific character:
+
+- **Studio Reference** — *almost passthrough*. Use for mixing, A/B reference,
+  or critical listening of mastered material. Everything zeroed except the
+  peak limiter as a safety net.
+
+- **Audiophile** — *invisible processing, but with 3D*. Like Studio Reference
+  but with strong crossfeed (0.55) so headphone listening escapes the
+  in-head image. Best for FLAC/WAV on dedicated headphones.
+
+- **Atmos / Cinema** — *the "free Dolby Atmos" preset*. Wide widening (1.55)
+  + crossfeed (0.5) + bass push (+4 dB). Works on both headphones AND
+  speakers. For films, trailers, big-room mixes.
+
+- **Headphones - Cinema** — *cinema preset, max for headphones only*.
+  Pushes Bauer crossfeed (0.85) and widening (1.45) further for stereo
+  cinema content on headphones. DSP-only; full HRTF binaural will arrive
+  in a later release.
+
+- **Punchy** — *the FxSound feel*. Bass +6 dB, full compression, max
+  squash. The "passthrough is half the volume" effect. Great for laptop /
+  car speakers / any "I want obvious impact" scenario. Fatiguing on good
+  headphones.
+
+- **Gaming** — *positional + impact*. Maximum widening (1.6) for
+  enemy localization, light compression (0.2) so footsteps survive,
+  crossfeed for headset out-of-head soundstage.
+
+- **Voice / Podcast** — *talk-radio level*. Narrow stereo (0.85, below
+  unity — speech is centred and widening worsens sibilance), heavy
+  compression for consistent dialogue level, vocal-band exciter at
+  2.8 kHz where intelligibility lives.
+
+- **Bass Heavy** — *EDM, hip-hop, dubstep*. Maximum sub-bass synthesis
+  (drive 0.85, mix 0.65, +8 dB), restrained treble (already-hot mixes
+  don't want more), hard compression for club-loud impact.
+
+- **Late Night** — *quiet listening that doesn't disturb*. Bass *rolled
+  off* (low frequencies travel through walls), heavy compression so
+  sudden loud bits don't startle, vocal clarity boosted to compensate
+  for the Fletcher-Munson dip at low volume.
+
+- **Live / Concert** — *Tiny Desk, bootlegs, sessions*. Wide image to
+  suggest the venue, exciter on cymbals/brushes (live recordings often
+  sound dull), moderate compression so audience-noise spikes don't
+  startle.
+
+### Picking what to use
+
+| If you want…                              | Pick                  |
+|-------------------------------------------|-----------------------|
+| Hear it loud, with obvious impact         | **Punchy** or **Bass Heavy** |
+| Hear it accurately                        | **Audiophile** or **Studio Reference** |
+| Hear cinema / films                       | **Atmos / Cinema** (any output) or **Headphones - Cinema** (headphones only) |
+| Listen quietly without disturbing         | **Late Night** |
+| Speech / podcasts / voice content         | **Voice / Podcast** |
+| Game audio                                | **Gaming** |
+| EDM / hip-hop / heavy electronic          | **Bass Heavy** |
+| Live recordings / concerts                | **Live / Concert** |
 
 Profiles live in `~/.config/bigsound/profiles/` (user-saved as
 `99-user-<name>.json`) and `/usr/share/bigsound/profiles/` (bundled).
