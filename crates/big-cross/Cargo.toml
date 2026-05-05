@@ -6,3 +6,6 @@ edition.workspace = true
 
 [dependencies]
 big-bass = { path = "../big-bass" }
+
+[dev-dependencies]
+big-space = { path = "../big-space" }

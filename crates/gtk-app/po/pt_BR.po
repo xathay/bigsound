@@ -73,6 +73,9 @@ msgstr "Exciter de agudos — brilho em pratos, voz e cordas"
 msgid "Stereo widening — 1.0 neutral, >1.0 wider, with bass kept centred"
 msgstr "Alargamento estéreo — 1,0 neutro, >1,0 mais amplo, com grave mantido no centro"
 
+msgid "Stereo widening — 1.0 neutral, >1.0 wider. Above 1.5 hard-panned content can phase-flip; cap is intentional."
+msgstr "Alargamento estéreo — 1,0 neutro, >1,0 mais amplo. Acima de 1,5 conteúdo panoramizado pode inverter de fase; o limite é proposital."
+
 msgid "Out-of-head soundstage — moves the image forward, less fatigue. 0 on speakers."
 msgstr "Palco sonoro fora da cabeça — projeta a imagem à frente, menos cansaço. 0 em alto-falantes."
 

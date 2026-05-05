@@ -11,6 +11,24 @@
 //! compatibility (laptop/phone speakers that physically sum to mono don't
 //! lose any low-end energy due to L/R cancellation) and produces a more
 //! "anchored" image — wide highs, solid lows.
+//!
+//! ## Phase-flip on hard-panned content at width > 1
+//!
+//! M/S widening with `width > 1` amplifies the (L − R) Side component.
+//! For *hard-panned* input — say L = x, R = 0 — that gives Mid = x/2,
+//! Side = x/2, and recomposed channels L' = x(1 + W)/2, R' = x(1 − W)/2.
+//! At W > 1 the recovered R' carries the **opposite phase** of the
+//! original input. Combined with BigCross (which adds in-phase delayed
+//! copies of the opposite channel) the apparent inter-aural correlation
+//! flips strongly negative — perceptually the brain reads this as
+//! "anti-phase mush", not as the natural out-of-head image crossfeed
+//! would produce on its own. This is intrinsic to all linear M/S
+//! wideners; pro-audio plugins handle it by capping the slider.
+//!
+//! BigSound caps the GTK slider for `bigspace:width` at 1.5 for that
+//! reason. Profiles that previously shipped wider values (Atmos/Cinema,
+//! Gaming) were tuned down. The DSP itself accepts the full range —
+//! the cap is policy at the UI layer.
 
 use big_bass::biquad::{Biquad, BiquadCoeffs};
 

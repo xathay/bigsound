@@ -154,9 +154,9 @@ fn slider_specs() -> Vec<SliderSpec> {
         },
         SliderSpec {
             title: tr("Space"),
-            subtitle: tr("Stereo widening — 1.0 neutral, >1.0 wider, with bass kept centred"),
+            subtitle: tr("Stereo widening — 1.0 neutral, >1.0 wider. Above 1.5 hard-panned content can phase-flip; cap is intentional."),
             param: "bigspace:width",
-            min: 0.0, max: 2.0, step: 0.05, digits: 2, default: 1.2,
+            min: 0.0, max: 1.5, step: 0.05, digits: 2, default: 1.2,
         },
         SliderSpec {
             title: tr("Crossfeed (Headphones)"),

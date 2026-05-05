@@ -247,6 +247,7 @@ name = "big-cross"
 version = "0.7.0"
 dependencies = [
  "big-bass",
+ "big-space",
 ]
 
 [[package]]
