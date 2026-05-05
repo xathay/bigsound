@@ -406,7 +406,7 @@ fn main() -> glib::ExitCode {
     let bus = match Bus::connect() {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("BigSound app: cannot reach session bus: {e}");
+            eprintln!("{}: {e}", tr("BigSound app: cannot reach session bus"));
             return glib::ExitCode::FAILURE;
         }
     };
