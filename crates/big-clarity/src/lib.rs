@@ -238,7 +238,9 @@ mod tests {
     #[test]
     fn output_is_finite_under_extreme_input() {
         let mut p = ClarityProcessor::new(1, SR, ClarityParams::default());
-        let input: Vec<f32> = (0..4096).map(|i| if i % 2 == 0 { 5.0 } else { -5.0 }).collect();
+        let input: Vec<f32> = (0..4096)
+            .map(|i| if i % 2 == 0 { 5.0 } else { -5.0 })
+            .collect();
         let output = process_mono(&mut p, &input);
         assert!(output.iter().all(|x| x.is_finite()));
     }
@@ -281,7 +283,11 @@ mod tests {
             out_r.push(frame[1]);
         }
         // The two outputs must differ (independent channel state).
-        let diff: f32 = out_l.iter().zip(out_r.iter()).map(|(a, b)| (a - b).abs()).sum();
+        let diff: f32 = out_l
+            .iter()
+            .zip(out_r.iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum();
         assert!(diff > 1.0);
     }
 }

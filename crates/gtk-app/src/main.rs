@@ -102,7 +102,11 @@ impl Bus {
     fn active_profile(&self) -> Option<String> {
         let p = self.proxy().ok()?;
         let name: String = p.get_property("ActiveProfile").ok()?;
-        if name.is_empty() { None } else { Some(name) }
+        if name.is_empty() {
+            None
+        } else {
+            Some(name)
+        }
     }
 }
 
@@ -261,9 +265,7 @@ fn build_profile_dropdown(
 
     let dd = gtk::DropDown::builder()
         .model(&model)
-        .tooltip_text(tr(
-            "Output profile (auto-applied when you change device)",
-        ))
+        .tooltip_text(tr("Output profile (auto-applied when you change device)"))
         .build();
 
     let update_group_for = |bus: &Bus, group: &adw::PreferencesGroup, name: &str| {
@@ -317,7 +319,11 @@ fn build_profile_dropdown(
 
 /// Build one slider row. Reads the current value from the daemon so the
 /// UI matches reality on launch, and writes back on `value-changed`.
-fn build_slider_row(spec: &SliderSpec, bus: &Bus, scales: &Rc<RefCell<Vec<(gtk::Scale, SliderSpec)>>>) -> adw::ActionRow {
+fn build_slider_row(
+    spec: &SliderSpec,
+    bus: &Bus,
+    scales: &Rc<RefCell<Vec<(gtk::Scale, SliderSpec)>>>,
+) -> adw::ActionRow {
     let row = adw::ActionRow::builder()
         .title(&spec.title)
         .subtitle(&spec.subtitle)
@@ -418,7 +424,9 @@ fn build_window(app: &adw::Application, bus: Bus) {
     let hint_group = adw::PreferencesGroup::new();
     let hint_row = adw::ActionRow::builder()
         .title(tr("Output device"))
-        .subtitle(tr("Pick \"BigSound (DSP)\" in Settings → Sound → Output to route audio through BigSound."))
+        .subtitle(tr(
+            "Pick \"BigSound (DSP)\" in Settings → Sound → Output to route audio through BigSound.",
+        ))
         .build();
     hint_group.add(&hint_row);
     page.add(&hint_group);
@@ -456,9 +464,7 @@ fn main() -> glib::ExitCode {
         return glib::ExitCode::FAILURE;
     }
 
-    let app = adw::Application::builder()
-        .application_id(APP_ID)
-        .build();
+    let app = adw::Application::builder().application_id(APP_ID).build();
 
     app.connect_activate(move |app| build_window(app, bus.clone()));
     app.run()

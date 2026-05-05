@@ -33,7 +33,7 @@
 // daemon can reach our methods — a redundant UID check inside each
 // method would not add real protection. We intentionally rely on this.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -59,23 +59,51 @@ const RE_PUSH_INTERVAL: Duration = Duration::from_secs(3);
 /// what makes `bigsound show` on a fresh install report numbers that
 /// match what PipeWire is actually doing.
 const PARAMS: &[(&str, &[&str], f64)] = &[
-    ("bigbass:target_freq", &["bigbass_l:target_freq", "bigbass_r:target_freq"],  90.0),
-    ("bigbass:drive",        &["bigbass_l:drive",        "bigbass_r:drive"],       0.45),
-    ("bigbass:mix",          &["bigbass_l:mix",          "bigbass_r:mix"],         0.35),
-    ("bigbass:cut_dry_lows", &["bigbass_l:cut_dry_lows", "bigbass_r:cut_dry_lows"], 0.0),
-    ("bigbass:loudness_db",  &["bigbass_l:loudness_db",  "bigbass_r:loudness_db"], 2.5),
-    ("bigclarity:target_freq", &["bigclarity_l:target_freq", "bigclarity_r:target_freq"], 4000.0),
-    ("bigclarity:drive",       &["bigclarity_l:drive",       "bigclarity_r:drive"],         0.3),
-    ("bigclarity:mix",         &["bigclarity_l:mix",         "bigclarity_r:mix"],           0.2),
-    ("bigspace:width",        &["bigspace:width"],          1.2),
+    (
+        "bigbass:target_freq",
+        &["bigbass_l:target_freq", "bigbass_r:target_freq"],
+        90.0,
+    ),
+    (
+        "bigbass:drive",
+        &["bigbass_l:drive", "bigbass_r:drive"],
+        0.45,
+    ),
+    ("bigbass:mix", &["bigbass_l:mix", "bigbass_r:mix"], 0.35),
+    (
+        "bigbass:cut_dry_lows",
+        &["bigbass_l:cut_dry_lows", "bigbass_r:cut_dry_lows"],
+        0.0,
+    ),
+    (
+        "bigbass:loudness_db",
+        &["bigbass_l:loudness_db", "bigbass_r:loudness_db"],
+        2.5,
+    ),
+    (
+        "bigclarity:target_freq",
+        &["bigclarity_l:target_freq", "bigclarity_r:target_freq"],
+        4000.0,
+    ),
+    (
+        "bigclarity:drive",
+        &["bigclarity_l:drive", "bigclarity_r:drive"],
+        0.3,
+    ),
+    (
+        "bigclarity:mix",
+        &["bigclarity_l:mix", "bigclarity_r:mix"],
+        0.2,
+    ),
+    ("bigspace:width", &["bigspace:width"], 1.2),
     ("bigspace:bass_keep_hz", &["bigspace:bass_keep_hz"], 150.0),
-    ("bigspace:mix",          &["bigspace:mix"],            1.0),
-    ("bigcross:amount",    &["bigcross:amount"],     0.3),
+    ("bigspace:mix", &["bigspace:mix"], 1.0),
+    ("bigcross:amount", &["bigcross:amount"], 0.3),
     ("bigcross:cutoff_hz", &["bigcross:cutoff_hz"], 700.0),
-    ("bigcross:delay_us",  &["bigcross:delay_us"],  280.0),
-    ("bigloud:amount",     &["bigloud:amount"],      0.4),
+    ("bigcross:delay_us", &["bigcross:delay_us"], 280.0),
+    ("bigloud:amount", &["bigloud:amount"], 0.4),
     ("bigloud:ceiling_db", &["bigloud:ceiling_db"], -1.0),
-    ("bigloud:mix",        &["bigloud:mix"],         1.0),
+    ("bigloud:mix", &["bigloud:mix"], 1.0),
 ];
 
 fn resolve_internal(name: &str) -> Option<&'static [&'static str]> {
@@ -159,7 +187,9 @@ fn load_profiles() -> HashMap<String, Profile> {
             .collect();
         paths.sort();
         for path in paths {
-            let Ok(bytes) = std::fs::read(&path) else { continue };
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
             match serde_json::from_slice::<Profile>(&bytes) {
                 Ok(mut p) => {
                     sanitise_profile(&mut p, &path);
@@ -212,7 +242,10 @@ fn current_default_sink_name() -> Option<String> {
 /// plugs headphones into a laptop's 3.5mm jack on a system whose codec
 /// keeps the same sink name and only flips the active port underneath.
 fn active_port_for_sink(sink_name: &str) -> Option<String> {
-    let out = Command::new("pactl").args(["list", "sinks"]).output().ok()?;
+    let out = Command::new("pactl")
+        .args(["list", "sinks"])
+        .output()
+        .ok()?;
     let txt = String::from_utf8_lossy(&out.stdout);
     let mut in_target = false;
     for line in txt.lines() {
@@ -253,7 +286,10 @@ fn discover_bigsound_node_id() -> Result<u32> {
         .output()
         .context("running pw-dump (PipeWire installed?)")?;
     if !output.status.success() {
-        bail!("pw-dump failed: {}", String::from_utf8_lossy(&output.stderr));
+        bail!(
+            "pw-dump failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
     let json: JsonValue = serde_json::from_slice(&output.stdout).context("parsing pw-dump JSON")?;
     let arr = json
@@ -286,7 +322,11 @@ fn push_internal_value(node_id: u32, internal: &str, value: f64) -> Result<()> {
     // and which would, in a worst case, escape into shell-interpretable
     // tokens if pw-cli's pod parser ever drops to a permissive mode.
     if !value.is_finite() {
-        bail!("refusing to push non-finite value {} for {}", value, internal);
+        bail!(
+            "refusing to push non-finite value {} for {}",
+            value,
+            internal
+        );
     }
     let pod = format!("{{ params = [ \"{internal}\" {value} ] }}");
     let output = Command::new("pw-cli")
@@ -385,9 +425,8 @@ impl BigSoundService {
                 "value must be finite (got {value})"
             )));
         }
-        let internals = resolve_internal(name).ok_or_else(|| {
-            zbus::fdo::Error::InvalidArgs(format!("unknown parameter '{name}'"))
-        })?;
+        let internals = resolve_internal(name)
+            .ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("unknown parameter '{name}'")))?;
         if let Ok(mut cache) = self.inner.cache.lock() {
             cache.insert(name.to_string(), value);
         }
@@ -439,8 +478,7 @@ impl BigSoundService {
         let profile = profiles
             .get(name)
             .ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("no such profile '{name}'")))?;
-        serde_json::to_string_pretty(profile)
-            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
+        serde_json::to_string_pretty(profile).map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
     }
 
     fn apply_profile(&self, name: &str) -> zbus::fdo::Result<()> {

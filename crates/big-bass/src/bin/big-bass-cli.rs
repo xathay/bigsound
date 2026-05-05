@@ -1,7 +1,7 @@
 //! Offline CLI — runs BigBass over a WAV file. Use it for A/B comparison
 //! during DSP tuning, before any realtime plumbing exists.
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use big_bass::{BassEnhancer, BassEnhancerParams};
 use clap::Parser;
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
@@ -64,8 +64,8 @@ fn main() -> anyhow::Result<()> {
         bail!("--loudness must be in -12..=+12 dB");
     }
 
-    let mut reader = WavReader::open(&cli.input)
-        .with_context(|| format!("opening {}", cli.input.display()))?;
+    let mut reader =
+        WavReader::open(&cli.input).with_context(|| format!("opening {}", cli.input.display()))?;
     let spec = reader.spec();
     let n_ch = spec.channels as usize;
     let sr = spec.sample_rate as f32;

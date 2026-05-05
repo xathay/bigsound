@@ -64,8 +64,7 @@ pub struct Descriptor {
     pub port_names: *const *const c_char,
     pub port_range_hints: *const PortRangeHint,
     pub impl_data: *mut c_void,
-    pub instantiate:
-        Option<unsafe extern "C" fn(*const Descriptor, c_ulong) -> *mut c_void>,
+    pub instantiate: Option<unsafe extern "C" fn(*const Descriptor, c_ulong) -> *mut c_void>,
     pub connect_port: Option<unsafe extern "C" fn(*mut c_void, c_ulong, *mut f32)>,
     pub activate: Option<unsafe extern "C" fn(*mut c_void)>,
     pub run: Option<unsafe extern "C" fn(*mut c_void, c_ulong)>,
@@ -123,10 +122,7 @@ pub unsafe fn read_control(ptr: *const f32, default: f32) -> f32 {
 /// `descriptor` must point to a `'static` `Descriptor` whose fields all
 /// reference data that lives for the program's lifetime.
 #[inline]
-pub unsafe fn descriptor_or_null(
-    index: c_ulong,
-    descriptor: &'static Descriptor,
-) -> *const c_void {
+pub unsafe fn descriptor_or_null(index: c_ulong, descriptor: &'static Descriptor) -> *const c_void {
     if index == 0 {
         descriptor as *const Descriptor as *const c_void
     } else {

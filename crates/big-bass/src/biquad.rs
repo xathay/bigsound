@@ -175,7 +175,10 @@ mod tests {
         let in_rms = rms(&signal[4096..]);
         let out_rms = rms(&output[4096..]);
         let attenuation_db = 20.0 * (out_rms / in_rms).log10();
-        assert!(attenuation_db < -10.0, "expected ≥10dB cut, got {attenuation_db} dB");
+        assert!(
+            attenuation_db < -10.0,
+            "expected ≥10dB cut, got {attenuation_db} dB"
+        );
     }
 
     #[test]
@@ -188,7 +191,10 @@ mod tests {
         let far_out = run(&mut far_filter, &far_in);
         let centre_ratio = rms(&centre_out[4096..]) / rms(&centre_in[4096..]);
         let far_ratio = rms(&far_out[4096..]) / rms(&far_in[4096..]);
-        assert!(centre_ratio > far_ratio * 5.0, "{centre_ratio} vs {far_ratio}");
+        assert!(
+            centre_ratio > far_ratio * 5.0,
+            "{centre_ratio} vs {far_ratio}"
+        );
     }
 
     #[test]
@@ -203,7 +209,9 @@ mod tests {
     #[test]
     fn output_is_finite_under_extreme_input() {
         let mut f = Biquad::new(BiquadCoeffs::highpass(SR, 200.0, 0.707));
-        let input: Vec<f32> = (0..4096).map(|i| if i % 2 == 0 { 1e6 } else { -1e6 }).collect();
+        let input: Vec<f32> = (0..4096)
+            .map(|i| if i % 2 == 0 { 1e6 } else { -1e6 })
+            .collect();
         let output = run(&mut f, &input);
         assert!(output.iter().all(|x| x.is_finite()));
     }

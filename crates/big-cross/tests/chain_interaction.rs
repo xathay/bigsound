@@ -119,8 +119,11 @@ fn chain_order_is_irrelevant() {
     for &(w, a) in &[(1.0, 0.6), (1.5, 0.6), (2.0, 0.6), (1.2, 0.3)] {
         let (l_s, r_s) = run_chain(w, a, Order::SpaceFirst);
         let (l_c, r_c) = run_chain(w, a, Order::CrossFirst);
-        for (i, ((&ls, &rs), (&lc, &rc))) in
-            l_s.iter().zip(r_s.iter()).zip(l_c.iter().zip(r_c.iter())).enumerate()
+        for (i, ((&ls, &rs), (&lc, &rc))) in l_s
+            .iter()
+            .zip(r_s.iter())
+            .zip(l_c.iter().zip(r_c.iter()))
+            .enumerate()
         {
             assert!(
                 (ls - lc).abs() < 1e-5 && (rs - rc).abs() < 1e-5,

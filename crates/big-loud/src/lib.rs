@@ -323,7 +323,10 @@ mod tests {
         let tail_peak = output[4096..]
             .iter()
             .fold(0.0_f32, |a, &(l, r)| a.max(l.abs()).max(r.abs()));
-        assert!(tail_peak <= ceiling_linear + 0.05, "tail peak {tail_peak} > {ceiling_linear}");
+        assert!(
+            tail_peak <= ceiling_linear + 0.05,
+            "tail peak {tail_peak} > {ceiling_linear}"
+        );
     }
 
     #[test]
@@ -358,7 +361,9 @@ mod tests {
         let _ = p.process_stereo(0.5, f32::INFINITY);
         let _ = p.process_stereo(f32::NEG_INFINITY, f32::NAN);
         let recovery = process(&mut p, &sine_pair(440.0, 1024, SR, 0.4));
-        assert!(recovery.iter().all(|&(l, r)| l.is_finite() && r.is_finite()));
+        assert!(recovery
+            .iter()
+            .all(|&(l, r)| l.is_finite() && r.is_finite()));
     }
 
     #[test]

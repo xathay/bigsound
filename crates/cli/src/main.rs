@@ -117,9 +117,7 @@ fn main() -> Result<()> {
             let names: Vec<String> = proxy.call("List", &()).context("calling List")?;
             let width = names.iter().map(|s| s.len()).max().unwrap_or(0);
             for n in names {
-                let v: f64 = proxy
-                    .call("Get", &(n.as_str(),))
-                    .unwrap_or(f64::NAN);
+                let v: f64 = proxy.call("Get", &(n.as_str(),)).unwrap_or(f64::NAN);
                 println!("  {n:<width$}  =  {v}", width = width);
             }
         }

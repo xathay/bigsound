@@ -195,7 +195,11 @@ impl BassEnhancerChannel {
             // attack) sounds "scratchy" on percussion because the gate
             // transitions are too abrupt and generate audible AM sidebands
             // when the harmonic signal is multiplied by the gate.
-            sidechain_env: PeakEnvelope::new(sample_rate, SIDECHAIN_ATTACK_MS, SIDECHAIN_RELEASE_MS),
+            sidechain_env: PeakEnvelope::new(
+                sample_rate,
+                SIDECHAIN_ATTACK_MS,
+                SIDECHAIN_RELEASE_MS,
+            ),
             limiter: PeakLimiter::new(sample_rate, LIMITER_THRESHOLD, LIMITER_RELEASE_MS),
         }
     }
@@ -218,20 +222,14 @@ impl BassEnhancerChannel {
     fn update_coeffs(&mut self, sample_rate: f32, params: &BassEnhancerParams) {
         let target = params.target_freq;
 
-        let sc_coeffs = BiquadCoeffs::bandpass(
-            sample_rate,
-            target * SIDECHAIN_BAND_RATIO,
-            SIDECHAIN_BAND_Q,
-        );
+        let sc_coeffs =
+            BiquadCoeffs::bandpass(sample_rate, target * SIDECHAIN_BAND_RATIO, SIDECHAIN_BAND_Q);
         for f in &mut self.sidechain_bp {
             f.set_coeffs(sc_coeffs);
         }
 
-        let hb_coeffs = BiquadCoeffs::bandpass(
-            sample_rate,
-            target * HARMONICS_BAND_RATIO,
-            HARMONICS_BAND_Q,
-        );
+        let hb_coeffs =
+            BiquadCoeffs::bandpass(sample_rate, target * HARMONICS_BAND_RATIO, HARMONICS_BAND_Q);
         for f in &mut self.harmonics_bp {
             f.set_coeffs(hb_coeffs);
         }
@@ -437,7 +435,9 @@ mod tests {
     #[test]
     fn output_is_finite_for_extreme_input() {
         let mut enh = BassEnhancer::new(1, SR, BassEnhancerParams::default());
-        let input: Vec<f32> = (0..4096).map(|i| if i % 2 == 0 { 10.0 } else { -10.0 }).collect();
+        let input: Vec<f32> = (0..4096)
+            .map(|i| if i % 2 == 0 { 10.0 } else { -10.0 })
+            .collect();
         let output = process_mono(&mut enh, &input);
         assert!(output.iter().all(|x| x.is_finite()));
     }
