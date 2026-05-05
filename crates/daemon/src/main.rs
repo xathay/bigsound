@@ -25,6 +25,14 @@
 //!   DeleteProfile(name)          → remove a profile from disk
 //!   property NodeId, ActiveProfile
 
+// Caller-identity note: this daemon registers on the D-Bus session bus,
+// whose unix socket lives in /run/user/$UID/bus and is created with
+// owner-only permissions. zbus also negotiates the EXTERNAL auth
+// mechanism on connect, which verifies peer credentials via SO_PEERCRED.
+// Together these mean only processes running as the same UID as the
+// daemon can reach our methods — a redundant UID check inside each
+// method would not add real protection. We intentionally rely on this.
+
 use anyhow::{Context, Result, bail};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -32,6 +40,7 @@ use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -109,6 +118,29 @@ fn profiles_dir() -> PathBuf {
     user_profiles_dir()
 }
 
+/// Drop any `params` key that doesn't appear in the canonical PARAMS
+/// list, and reject keys that obviously look hostile (control chars,
+/// excessively long). Loaded profiles can come from anywhere on disk —
+/// validating them up front means a malformed or malicious file just
+/// becomes a no-op instead of triggering odd behaviour later in the
+/// chain. Drops are logged so the user sees why a key was ignored.
+fn sanitise_profile(profile: &mut Profile, source: &std::path::Path) {
+    profile.params.retain(|k, _v| {
+        let valid = !k.is_empty()
+            && k.len() <= 64
+            && k.chars().all(|c| c.is_ascii_graphic())
+            && resolve_internal(k).is_some();
+        if !valid {
+            eprintln!(
+                "bigsound-daemon: dropping unknown/malformed param '{}' from {}",
+                k,
+                source.display()
+            );
+        }
+        valid
+    });
+}
+
 /// Load every profile (`*.json`) found in the system-wide path
 /// (/usr/share/bigsound/profiles/) and the user path
 /// (~/.config/bigsound/profiles/), with the user path winning for
@@ -129,7 +161,8 @@ fn load_profiles() -> HashMap<String, Profile> {
         for path in paths {
             let Ok(bytes) = std::fs::read(&path) else { continue };
             match serde_json::from_slice::<Profile>(&bytes) {
-                Ok(p) => {
+                Ok(mut p) => {
+                    sanitise_profile(&mut p, &path);
                     map.insert(p.name.clone(), p);
                 }
                 Err(e) => eprintln!("bigsound-daemon: ignoring {}: {e}", path.display()),
@@ -285,6 +318,11 @@ fn push_cache_to_pipewire(node_id: u32, cache: &HashMap<String, f64>) {
 struct ServiceInner {
     node_id: u32,
     cache: Mutex<HashMap<String, f64>>,
+    /// Bumped on every cache mutation. The background thread compares
+    /// against `last_pushed_gen` to skip re-pushing when nothing has
+    /// changed since the previous push — closes the race where an idle
+    /// re-push tick could overwrite a fresh user-driven Set call.
+    cache_gen: AtomicU64,
     profiles: Mutex<HashMap<String, Profile>>,
     active_profile: Mutex<Option<String>>,
     /// Track the last default sink we saw so the polling thread only
@@ -302,10 +340,17 @@ impl ServiceInner {
         Self {
             node_id,
             cache: Mutex::new(cache),
+            cache_gen: AtomicU64::new(0),
             profiles: Mutex::new(load_profiles()),
             active_profile: Mutex::new(None),
             last_default_sink: Mutex::new(None),
         }
+    }
+
+    /// Bump the cache generation counter — call this anywhere we mutate
+    /// the cache so the background thread knows there's new state to push.
+    fn bump_cache_gen(&self) {
+        self.cache_gen.fetch_add(1, Ordering::Release);
     }
 
     fn apply_profile_inner(&self, profile: &Profile) {
@@ -318,6 +363,7 @@ impl ServiceInner {
         // Snapshot for pushing while not holding any other lock.
         let snapshot = cache.clone();
         drop(cache);
+        self.bump_cache_gen();
         push_cache_to_pipewire(self.node_id, &snapshot);
         *self
             .active_profile
@@ -334,12 +380,18 @@ struct BigSoundService {
 #[interface(name = "com.bigcommunity.BigSound1")]
 impl BigSoundService {
     fn set(&self, name: &str, value: f64) -> zbus::fdo::Result<()> {
+        if !value.is_finite() {
+            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                "value must be finite (got {value})"
+            )));
+        }
         let internals = resolve_internal(name).ok_or_else(|| {
             zbus::fdo::Error::InvalidArgs(format!("unknown parameter '{name}'"))
         })?;
         if let Ok(mut cache) = self.inner.cache.lock() {
             cache.insert(name.to_string(), value);
         }
+        self.inner.bump_cache_gen();
         for internal in internals {
             let _ = push_internal_value(self.inner.node_id, internal, value);
         }
@@ -496,18 +548,29 @@ impl BigSoundService {
 }
 
 /// Background thread: periodically (a) re-push the cache to PipeWire so
-/// it survives suspend→resume of the BigSound sink, and (b) check whether
-/// the system default sink changed and, if so, auto-apply the matching
-/// profile.
+/// it survives suspend→resume of the BigSound sink — only when the cache
+/// has actually changed since the last push, gated by `cache_gen` — and
+/// (b) check whether the system default sink changed and, if so,
+/// auto-apply the matching profile.
 fn run_background(inner: Arc<ServiceInner>) {
+    // Tracks the cache generation we last pushed so we can skip re-pushing
+    // when nothing has changed since. Read the generation BEFORE snapshotting
+    // — any Set that lands between the read and the snapshot will already
+    // be in the snapshot (harmless redundant push) and will bump the gen
+    // again, so the next tick still triggers.
+    let mut last_pushed_gen: u64 = 0;
     loop {
         thread::sleep(RE_PUSH_INTERVAL);
 
-        // (a) Re-push cache.
-        if let Ok(cache) = inner.cache.lock() {
-            let snapshot = cache.clone();
-            drop(cache);
-            push_cache_to_pipewire(inner.node_id, &snapshot);
+        // (a) Re-push cache, but only if it changed since the last push.
+        let current_gen = inner.cache_gen.load(Ordering::Acquire);
+        if current_gen != last_pushed_gen {
+            if let Ok(cache) = inner.cache.lock() {
+                let snapshot = cache.clone();
+                drop(cache);
+                push_cache_to_pipewire(inner.node_id, &snapshot);
+                last_pushed_gen = current_gen;
+            }
         }
 
         // (b) Auto-profile detection.
