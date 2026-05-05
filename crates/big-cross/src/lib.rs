@@ -199,3 +199,159 @@ impl CrossfeedProcessor {
         (l + cross_r * g, r + cross_l * g)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SR: f32 = 48000.0;
+
+    fn sine(freq: f32, n: usize, sr: f32, amp: f32) -> Vec<f32> {
+        (0..n)
+            .map(|i| (2.0 * std::f32::consts::PI * freq * i as f32 / sr).sin() * amp)
+            .collect()
+    }
+
+    #[test]
+    fn bypass_passes_input_through() {
+        let mut p = CrossfeedProcessor::new(
+            SR,
+            CrossfeedParams {
+                bypass: true,
+                ..Default::default()
+            },
+        );
+        let l = sine(440.0, 256, SR, 0.5);
+        let r = sine(660.0, 256, SR, 0.5);
+        for i in 0..l.len() {
+            let (ol, or) = p.process_stereo(l[i], r[i]);
+            assert_eq!(ol, l[i]);
+            assert_eq!(or, r[i]);
+        }
+    }
+
+    #[test]
+    fn zero_amount_is_identity() {
+        let mut p = CrossfeedProcessor::new(
+            SR,
+            CrossfeedParams {
+                amount: 0.0,
+                ..Default::default()
+            },
+        );
+        let l = sine(1000.0, 256, SR, 0.5);
+        let r = sine(2000.0, 256, SR, 0.5);
+        for i in 0..l.len() {
+            let (ol, or) = p.process_stereo(l[i], r[i]);
+            assert_eq!(ol, l[i]);
+            assert_eq!(or, r[i]);
+        }
+    }
+
+    #[test]
+    fn output_is_finite_under_extreme_input() {
+        let mut p = CrossfeedProcessor::new(
+            SR,
+            CrossfeedParams {
+                amount: 1.0,
+                ..Default::default()
+            },
+        );
+        for i in 0..4096 {
+            let s = if i % 2 == 0 { 10.0 } else { -10.0 };
+            let (ol, or) = p.process_stereo(s, -s);
+            assert!(ol.is_finite() && or.is_finite());
+        }
+    }
+
+    #[test]
+    fn ring_delay_zero_passthrough() {
+        let mut d = RingDelay::new(64);
+        d.set_delay_samples(0);
+        for i in 0..16 {
+            let x = i as f32;
+            assert_eq!(d.process(x), x);
+        }
+    }
+
+    #[test]
+    fn ring_delay_reads_n_samples_back() {
+        let mut d = RingDelay::new(64);
+        d.set_delay_samples(5);
+        // First 5 samples come from the zero-initialised buffer.
+        for i in 0..5 {
+            assert_eq!(d.process(i as f32 + 1.0), 0.0);
+        }
+        // After that, every sample should be 5 samples behind.
+        for i in 5..16 {
+            let x = i as f32 + 1.0;
+            let expected = (i - 5) as f32 + 1.0;
+            assert_eq!(d.process(x), expected);
+        }
+    }
+
+    #[test]
+    fn ring_delay_clamps_oversize_request() {
+        let mut d = RingDelay::new(8);
+        d.set_delay_samples(100);
+        // Should clamp to capacity-1 = 7 without panicking.
+        for _ in 0..32 {
+            let _ = d.process(1.0);
+        }
+    }
+
+    #[test]
+    fn set_params_changes_response() {
+        let mut p = CrossfeedProcessor::new(
+            SR,
+            CrossfeedParams {
+                amount: 0.5,
+                cutoff_hz: 700.0,
+                delay_us: 280.0,
+                bypass: false,
+            },
+        );
+        let l_in = sine(1000.0, 1024, SR, 0.5);
+        let r_in = vec![0.0; 1024];
+        let baseline: Vec<f32> = l_in
+            .iter()
+            .zip(r_in.iter())
+            .map(|(&l, &r)| p.process_stereo(l, r).1)
+            .collect();
+        p.reset();
+        p.set_params(CrossfeedParams {
+            amount: 1.0,
+            cutoff_hz: 1500.0,
+            delay_us: 400.0,
+            bypass: false,
+        });
+        let stronger: Vec<f32> = l_in
+            .iter()
+            .zip(r_in.iter())
+            .map(|(&l, &r)| p.process_stereo(l, r).1)
+            .collect();
+        // Stronger settings must produce a louder cross signal on the right.
+        let baseline_rms: f32 = (baseline[512..].iter().map(|x| x * x).sum::<f32>() / 512.0).sqrt();
+        let stronger_rms: f32 = (stronger[512..].iter().map(|x| x * x).sum::<f32>() / 512.0).sqrt();
+        assert!(stronger_rms > baseline_rms);
+    }
+
+    #[test]
+    fn reset_clears_state() {
+        let mut p = CrossfeedProcessor::new(SR, CrossfeedParams::default());
+        p.set_params(CrossfeedParams {
+            amount: 1.0,
+            ..Default::default()
+        });
+        for _ in 0..1024 {
+            let _ = p.process_stereo(1.0, -1.0);
+        }
+        p.reset();
+        let mut tail = 0.0_f32;
+        for _ in 0..2048 {
+            let (ol, or) = p.process_stereo(0.0, 0.0);
+            tail = tail.max(ol.abs()).max(or.abs());
+        }
+        assert!(tail < 1.0e-5);
+    }
+}

@@ -126,3 +126,85 @@ impl Biquad {
         self.z2 = 0.0;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SR: f32 = 48000.0;
+
+    fn run(filter: &mut Biquad, input: &[f32]) -> Vec<f32> {
+        input.iter().map(|&x| filter.process(x)).collect()
+    }
+
+    fn rms(samples: &[f32]) -> f32 {
+        let n = samples.len() as f32;
+        (samples.iter().map(|x| x * x).sum::<f32>() / n).sqrt()
+    }
+
+    fn sine(freq: f32, n: usize, sr: f32) -> Vec<f32> {
+        (0..n)
+            .map(|i| (2.0 * std::f32::consts::PI * freq * i as f32 / sr).sin())
+            .collect()
+    }
+
+    #[test]
+    fn passthrough_coeffs_preserve_input() {
+        let mut f = Biquad::new(BiquadCoeffs::PASSTHROUGH);
+        let input = sine(1000.0, 256, SR);
+        let output = run(&mut f, &input);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn highpass_kills_dc() {
+        let mut f = Biquad::new(BiquadCoeffs::highpass(SR, 80.0, 0.707));
+        // Process enough samples for the filter to settle.
+        let _ = run(&mut f, &vec![1.0; 4096]);
+        let tail = run(&mut f, &vec![1.0; 1024]);
+        let tail_rms = rms(&tail);
+        assert!(tail_rms < 1.0e-3, "DC leaked through highpass: {tail_rms}");
+    }
+
+    #[test]
+    fn lowpass_attenuates_high_frequencies() {
+        let mut lp = Biquad::new(BiquadCoeffs::lowpass(SR, 1000.0, 0.707));
+        // Discard transient, then measure RMS of a 8 kHz sine — well above cutoff.
+        let signal = sine(8000.0, 8192, SR);
+        let output = run(&mut lp, &signal);
+        let in_rms = rms(&signal[4096..]);
+        let out_rms = rms(&output[4096..]);
+        let attenuation_db = 20.0 * (out_rms / in_rms).log10();
+        assert!(attenuation_db < -10.0, "expected ≥10dB cut, got {attenuation_db} dB");
+    }
+
+    #[test]
+    fn bandpass_passes_centre_attenuates_far() {
+        let mut centre_filter = Biquad::new(BiquadCoeffs::bandpass(SR, 1000.0, 1.0));
+        let mut far_filter = Biquad::new(BiquadCoeffs::bandpass(SR, 1000.0, 1.0));
+        let centre_in = sine(1000.0, 8192, SR);
+        let far_in = sine(50.0, 8192, SR);
+        let centre_out = run(&mut centre_filter, &centre_in);
+        let far_out = run(&mut far_filter, &far_in);
+        let centre_ratio = rms(&centre_out[4096..]) / rms(&centre_in[4096..]);
+        let far_ratio = rms(&far_out[4096..]) / rms(&far_in[4096..]);
+        assert!(centre_ratio > far_ratio * 5.0, "{centre_ratio} vs {far_ratio}");
+    }
+
+    #[test]
+    fn reset_clears_state() {
+        let mut f = Biquad::new(BiquadCoeffs::lowpass(SR, 1000.0, 0.707));
+        let _ = run(&mut f, &sine(500.0, 4096, SR));
+        f.reset();
+        assert_eq!(f.z1, 0.0);
+        assert_eq!(f.z2, 0.0);
+    }
+
+    #[test]
+    fn output_is_finite_under_extreme_input() {
+        let mut f = Biquad::new(BiquadCoeffs::highpass(SR, 200.0, 0.707));
+        let input: Vec<f32> = (0..4096).map(|i| if i % 2 == 0 { 1e6 } else { -1e6 }).collect();
+        let output = run(&mut f, &input);
+        assert!(output.iter().all(|x| x.is_finite()));
+    }
+}

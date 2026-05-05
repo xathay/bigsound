@@ -170,3 +170,118 @@ impl ClarityProcessor {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SR: f32 = 48000.0;
+
+    fn sine(freq: f32, n: usize, sr: f32) -> Vec<f32> {
+        (0..n)
+            .map(|i| (2.0 * std::f32::consts::PI * freq * i as f32 / sr).sin() * 0.5)
+            .collect()
+    }
+
+    fn process_mono(p: &mut ClarityProcessor, input: &[f32]) -> Vec<f32> {
+        input
+            .iter()
+            .map(|&x| {
+                let mut frame = [x];
+                p.process_frame(&mut frame);
+                frame[0]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn bypass_passes_input_through() {
+        let mut p = ClarityProcessor::new(
+            1,
+            SR,
+            ClarityParams {
+                bypass: true,
+                ..Default::default()
+            },
+        );
+        let input = sine(440.0, 512, SR);
+        let output = process_mono(&mut p, &input);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn zero_mix_is_identity() {
+        let mut p = ClarityProcessor::new(
+            1,
+            SR,
+            ClarityParams {
+                mix: 0.0,
+                ..Default::default()
+            },
+        );
+        let input = sine(2000.0, 4096, SR);
+        let output = process_mono(&mut p, &input);
+        // input + 0 * harmonics ≈ input (within denormal seed).
+        for (a, b) in input[2048..].iter().zip(output[2048..].iter()) {
+            assert!((a - b).abs() < 1.0e-3, "{a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn silence_in_silence_out() {
+        let mut p = ClarityProcessor::new(1, SR, ClarityParams::default());
+        let output = process_mono(&mut p, &vec![0.0; 4096]);
+        let tail_max = output[2048..].iter().fold(0.0_f32, |a, &x| a.max(x.abs()));
+        assert!(tail_max < 1.0e-3, "tail max = {tail_max}");
+    }
+
+    #[test]
+    fn output_is_finite_under_extreme_input() {
+        let mut p = ClarityProcessor::new(1, SR, ClarityParams::default());
+        let input: Vec<f32> = (0..4096).map(|i| if i % 2 == 0 { 5.0 } else { -5.0 }).collect();
+        let output = process_mono(&mut p, &input);
+        assert!(output.iter().all(|x| x.is_finite()));
+    }
+
+    #[test]
+    fn set_params_works_under_sweep() {
+        let mut p = ClarityProcessor::new(1, SR, ClarityParams::default());
+        for f in [2000.0, 3500.0, 6000.0] {
+            p.set_params(ClarityParams {
+                target_freq: f,
+                drive: 0.5,
+                mix: 0.3,
+                bypass: false,
+            });
+            let _ = process_mono(&mut p, &sine(f, 256, SR));
+        }
+    }
+
+    #[test]
+    fn reset_clears_filter_state() {
+        let mut p = ClarityProcessor::new(1, SR, ClarityParams::default());
+        let _ = process_mono(&mut p, &vec![1.0; 1024]);
+        p.reset();
+        let output = process_mono(&mut p, &vec![0.0; 2048]);
+        let late_max = output[1024..].iter().fold(0.0_f32, |a, &x| a.max(x.abs()));
+        assert!(late_max < 1.0e-3);
+    }
+
+    #[test]
+    fn multi_channel_processes_independently() {
+        let mut p = ClarityProcessor::new(2, SR, ClarityParams::default());
+        let l = sine(440.0, 512, SR);
+        let r = sine(880.0, 512, SR);
+        let mut out_l = Vec::with_capacity(l.len());
+        let mut out_r = Vec::with_capacity(r.len());
+        for i in 0..l.len() {
+            let mut frame = [l[i], r[i]];
+            p.process_frame(&mut frame);
+            out_l.push(frame[0]);
+            out_r.push(frame[1]);
+        }
+        // The two outputs must differ (independent channel state).
+        let diff: f32 = out_l.iter().zip(out_r.iter()).map(|(a, b)| (a - b).abs()).sum();
+        assert!(diff > 1.0);
+    }
+}
