@@ -71,7 +71,13 @@ impl RingDelay {
     }
 
     fn set_delay_samples(&mut self, n: usize) {
-        self.delay_samples = n.min(self.buf.len() - 1).max(1);
+        // Max usable delay is buf.len() - 1: with N slots and a delay of N
+        // the read index aliases the just-written sample (delay 0). Use
+        // saturating_sub so a degenerate capacity-1 buffer yields max=0
+        // (true passthrough) instead of the previous off-by-one where
+        // n=1 was requested but process() still returned the live sample.
+        let max = self.buf.len().saturating_sub(1);
+        self.delay_samples = n.min(max);
     }
 
     fn reset(&mut self) {
