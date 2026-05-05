@@ -9,6 +9,58 @@ pub mod biquad;
 
 use biquad::{Biquad, BiquadCoeffs};
 
+/// Anti-denormal DC seed added to inputs. Below ~1e-38 the FPU drops into
+/// sub-normal mode and slows 10-50×, causing realtime underruns on quiet
+/// passages. 1e-20 is well above that threshold yet inaudible.
+const DENORMAL_SEED: f32 = 1.0e-20;
+
+/// Drive knob (0..=1) maps linearly to a tanh pre-gain in [DRIVE_MIN..=DRIVE_MAX].
+/// 10× max drive matches the harmonic richness of classic hardware exciters
+/// without flattening the input into a square wave.
+const DRIVE_MIN: f32 = 1.0;
+const DRIVE_MAX: f32 = 10.0;
+
+/// Smooths the corner of the half-wave rectifier `0.5*(x + sqrt(x² + ε))`
+/// so the function is C∞ at x=0 — eliminates the aliasing the sharp
+/// rectifier would generate.
+const RECTIFIER_EPS: f32 = 1.0e-3;
+
+/// Compensates the amplitude loss of half-wave rectification (mean ≈ 0.5×
+/// the original peak).
+const HALFWAVE_GAIN_COMP: f32 = 2.0;
+
+/// Exponential rate of the harmonic gate `1 - exp(-k * env)`. Higher = the
+/// gate opens faster as the sidechain envelope rises. 8.0 hits ~99% open
+/// at env ≈ 0.6, soft enough to avoid AM sidebands on percussion.
+const GATE_RATE: f32 = 8.0;
+
+/// DC blocker placed on the rectifier output. 20 Hz is the conventional
+/// edge — below the audible band but high enough to converge fast.
+const DC_BLOCKER_HZ: f32 = 20.0;
+
+/// Sidechain bandpass centre, expressed as a fraction of `target_freq`.
+/// Slightly below target captures the bass content the speaker is rolling
+/// off rather than the target itself.
+const SIDECHAIN_BAND_RATIO: f32 = 0.75;
+const SIDECHAIN_BAND_Q: f32 = 0.7;
+
+/// Harmonic bandpass centre — covers ~2nd through ~5th harmonics of `target`.
+const HARMONICS_BAND_RATIO: f32 = 2.5;
+const HARMONICS_BAND_Q: f32 = 0.5;
+
+/// Sidechain envelope follower constants. Faster (~5 ms) attack sounds
+/// "scratchy" on percussion because the gate transitions are too abrupt
+/// and produce audible AM sidebands when the harmonics get multiplied.
+const SIDECHAIN_ATTACK_MS: f32 = 12.0;
+const SIDECHAIN_RELEASE_MS: f32 = 200.0;
+
+/// Peak limiter on the make-up gain stage. 0.95 (-0.45 dBFS) leaves a
+/// sliver of headroom for the LADSPA host's own clipping; 50 ms release
+/// is fast enough not to choke transients, slow enough not to pump on
+/// sustained content.
+const LIMITER_THRESHOLD: f32 = 0.95;
+const LIMITER_RELEASE_MS: f32 = 50.0;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BassEnhancerParams {
     /// Lower edge of the band the speaker fails to reproduce (Hz).
@@ -137,12 +189,8 @@ impl BassEnhancerChannel {
             // attack) sounds "scratchy" on percussion because the gate
             // transitions are too abrupt and generate audible AM sidebands
             // when the harmonic signal is multiplied by the gate.
-            sidechain_env: PeakEnvelope::new(sample_rate, 12.0, 200.0),
-            // Threshold 0.95 (-0.45 dBFS) leaves a sliver of headroom for
-            // the LADSPA host's own clipping. 50ms release feels musical
-            // — fast enough not to choke transients, slow enough not to
-            // pump on sustained content.
-            limiter: PeakLimiter::new(sample_rate, 0.95, 50.0),
+            sidechain_env: PeakEnvelope::new(sample_rate, SIDECHAIN_ATTACK_MS, SIDECHAIN_RELEASE_MS),
+            limiter: PeakLimiter::new(sample_rate, LIMITER_THRESHOLD, LIMITER_RELEASE_MS),
         }
     }
 
@@ -164,15 +212,20 @@ impl BassEnhancerChannel {
     fn update_coeffs(&mut self, sample_rate: f32, params: &BassEnhancerParams) {
         let target = params.target_freq;
 
-        // Sidechain band centred slightly below target — captures the
-        // bass content that is being rolled off by the speaker.
-        let sc_coeffs = BiquadCoeffs::bandpass(sample_rate, target * 0.75, 0.7);
+        let sc_coeffs = BiquadCoeffs::bandpass(
+            sample_rate,
+            target * SIDECHAIN_BAND_RATIO,
+            SIDECHAIN_BAND_Q,
+        );
         for f in &mut self.sidechain_bp {
             f.set_coeffs(sc_coeffs);
         }
 
-        // Harmonics band: 2nd through ~5th harmonics of `target`.
-        let hb_coeffs = BiquadCoeffs::bandpass(sample_rate, target * 2.5, 0.5);
+        let hb_coeffs = BiquadCoeffs::bandpass(
+            sample_rate,
+            target * HARMONICS_BAND_RATIO,
+            HARMONICS_BAND_Q,
+        );
         for f in &mut self.harmonics_bp {
             f.set_coeffs(hb_coeffs);
         }
@@ -183,9 +236,8 @@ impl BassEnhancerChannel {
             f.set_coeffs(dry_coeffs);
         }
 
-        // DC blocker on the rectifier output.
         self.dc_blocker
-            .set_coeffs(BiquadCoeffs::highpass(sample_rate, 20.0, 0.707));
+            .set_coeffs(BiquadCoeffs::highpass(sample_rate, DC_BLOCKER_HZ, 0.707));
     }
 
     #[inline]
@@ -194,10 +246,7 @@ impl BassEnhancerChannel {
             return input;
         }
 
-        // Anti-denormal seed — keeps biquad state away from sub-normal
-        // floats during silence; denormals slow the FPU 10-50× and can
-        // cause realtime underruns on quiet passages.
-        let input_safe = input + 1.0e-20;
+        let input_safe = input + DENORMAL_SEED;
 
         // 1. Isolate the band to enhance.
         let mut sc = input_safe;
@@ -209,13 +258,11 @@ impl BassEnhancerChannel {
         let env = self.sidechain_env.process(sc);
 
         // 3. Smooth half-wave rectifier (Aarts NLD, smoothed):
-        //    f(x) = 0.5 * (x + sqrt(x² + ε))
-        //    ε > 0 rounds the corner at x=0 so the function is C∞,
-        //    eliminating the aliasing the sharp rectifier generates.
+        //    f(x) = 0.5 * (x + sqrt(x² + ε)), ε rounds the corner at x=0.
         //    `tanh` after caps amplitude.
-        let drive = 1.0 + params.drive * 9.0;
+        let drive = DRIVE_MIN + params.drive * (DRIVE_MAX - DRIVE_MIN);
         let scaled = drive * sc;
-        let smooth_abs = (scaled * scaled + 1.0e-3).sqrt();
+        let smooth_abs = (scaled * scaled + RECTIFIER_EPS).sqrt();
         let smooth_halfwave = 0.5 * (scaled + smooth_abs);
         let rectified = smooth_halfwave.tanh();
 
@@ -228,11 +275,9 @@ impl BassEnhancerChannel {
             harm = f.process(harm);
         }
 
-        // 6. Gate harmonics by sidechain envelope. The exponential
-        //    `1 - exp(-k*env)` rises smoothly from 0 to 1 with no
-        //    plateau-clipping, giving softer multiplicative behaviour
-        //    than `min(k*env, 1)` (which has a sharp knee at 1).
-        let gate = 1.0 - (-env * 8.0).exp();
+        // 6. Gate harmonics by sidechain envelope: `1 - exp(-k*env)` rises
+        //    smoothly from 0 to 1 with no plateau-clipping.
+        let gate = 1.0 - (-env * GATE_RATE).exp();
         let harm_out = harm * gate;
 
         // 7. Optional cut of un-reproducible lows on the dry signal.
@@ -246,9 +291,7 @@ impl BassEnhancerChannel {
             input
         };
 
-        // The 2× compensates the amplitude loss of half-wave rectification
-        // (rectifier output mean ≈ 0.5× the original peak).
-        let enhanced = dry + params.mix * 2.0 * harm_out;
+        let enhanced = dry + params.mix * HALFWAVE_GAIN_COMP * harm_out;
 
         // Make-up gain: this is what gives BigSound the "feel louder"
         // perception that's expected from a FxSound-style enhancer.

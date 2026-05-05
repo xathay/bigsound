@@ -24,6 +24,19 @@
 
 use big_bass::biquad::{Biquad, BiquadCoeffs};
 
+/// Bauer's classic cross-signal level: -9 dB at full crossfeed, linear ≈ 0.355.
+const BAUER_GAIN_LINEAR: f32 = 0.355;
+
+/// Headroom of the delay ring buffer in seconds. The delay knob caps at
+/// 500 µs (delay_us range 100..=500), so 1 ms is plenty.
+const BUFFER_HEADROOM_SEC: f32 = 0.001;
+
+/// Floor on the delay buffer length. Keeps the ring functional even at
+/// pathologically low sample rates.
+const MIN_BUFFER_SAMPLES: usize = 32;
+
+const US_PER_SEC: f32 = 1_000_000.0;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CrossfeedParams {
     /// 0 = bypass, 1 = full crossfeed (-9 dB cross signal level).
@@ -111,8 +124,7 @@ pub struct CrossfeedProcessor {
 
 impl CrossfeedProcessor {
     pub fn new(sample_rate: f32, params: CrossfeedParams) -> Self {
-        // 1 ms of headroom is plenty (delay knob caps at 500 µs).
-        let cap = ((sample_rate * 0.001) as usize).max(32);
+        let cap = ((sample_rate * BUFFER_HEADROOM_SEC) as usize).max(MIN_BUFFER_SAMPLES);
         let mut s = Self {
             lp_l: [Biquad::default(); 2],
             lp_r: [Biquad::default(); 2],
@@ -133,7 +145,7 @@ impl CrossfeedProcessor {
         for f in &mut self.lp_r {
             f.set_coeffs(lp);
         }
-        let samples = ((self.params.delay_us / 1_000_000.0) * self.sample_rate).round() as usize;
+        let samples = ((self.params.delay_us / US_PER_SEC) * self.sample_rate).round() as usize;
         self.delay_l.set_delay_samples(samples);
         self.delay_r.set_delay_samples(samples);
     }
@@ -177,9 +189,7 @@ impl CrossfeedProcessor {
         let cross_l = self.delay_l.process(cross_l);
         let cross_r = self.delay_r.process(cross_r);
 
-        // Bauer's classic level: -9 dB at full crossfeed (linear ≈ 0.355).
-        // We scale linearly with `amount` so the knob is intuitive.
-        let g = self.params.amount * 0.355;
+        let g = self.params.amount * BAUER_GAIN_LINEAR;
 
         // Each ear gets its direct channel + the OPPOSITE ear's cross
         // signal — that's the wrong-ear path that didn't exist on
