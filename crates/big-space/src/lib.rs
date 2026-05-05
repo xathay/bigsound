@@ -112,3 +112,133 @@ impl SpaceProcessor {
         (out_l, out_r)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SR: f32 = 48000.0;
+
+    fn sine(freq: f32, n: usize, sr: f32, amp: f32) -> Vec<f32> {
+        (0..n)
+            .map(|i| (2.0 * std::f32::consts::PI * freq * i as f32 / sr).sin() * amp)
+            .collect()
+    }
+
+    #[test]
+    fn bypass_passes_input_through() {
+        let mut p = SpaceProcessor::new(
+            SR,
+            SpaceParams {
+                bypass: true,
+                ..Default::default()
+            },
+        );
+        let l = sine(440.0, 512, SR, 0.5);
+        let r = sine(660.0, 512, SR, 0.5);
+        for i in 0..l.len() {
+            let (ol, or) = p.process_stereo(l[i], r[i]);
+            assert_eq!(ol, l[i]);
+            assert_eq!(or, r[i]);
+        }
+    }
+
+    #[test]
+    fn zero_mix_is_identity() {
+        let mut p = SpaceProcessor::new(
+            SR,
+            SpaceParams {
+                width: 2.0,
+                mix: 0.0,
+                ..Default::default()
+            },
+        );
+        let l = sine(440.0, 512, SR, 0.5);
+        let r = sine(660.0, 512, SR, 0.5);
+        for i in 0..l.len() {
+            let (ol, or) = p.process_stereo(l[i], r[i]);
+            assert!((ol - l[i]).abs() < 1.0e-6);
+            assert!((or - r[i]).abs() < 1.0e-6);
+        }
+    }
+
+    #[test]
+    fn unity_width_with_full_mix_preserves_signal() {
+        let mut p = SpaceProcessor::new(
+            SR,
+            SpaceParams {
+                width: 1.0,
+                mix: 1.0,
+                bass_keep_hz: 200.0,
+                bypass: false,
+            },
+        );
+        // Width=1 → no scaling on the side; mid+side reconstruction is identity.
+        let l = sine(2000.0, 4096, SR, 0.4);
+        let r = sine(2000.0, 4096, SR, 0.4);
+        for i in 2048..l.len() {
+            let (ol, or) = p.process_stereo(l[i], r[i]);
+            assert!((ol - l[i]).abs() < 1.0e-3);
+            assert!((or - r[i]).abs() < 1.0e-3);
+        }
+    }
+
+    #[test]
+    fn mono_input_stays_mono() {
+        // L=R means side=0, so the widener can't make them differ.
+        let mut p = SpaceProcessor::new(
+            SR,
+            SpaceParams {
+                width: 2.0,
+                mix: 1.0,
+                ..Default::default()
+            },
+        );
+        let signal = sine(1000.0, 1024, SR, 0.5);
+        for &s in &signal {
+            let (ol, or) = p.process_stereo(s, s);
+            assert!((ol - or).abs() < 1.0e-5);
+        }
+    }
+
+    #[test]
+    fn output_is_finite_under_extreme_input() {
+        let mut p = SpaceProcessor::new(SR, SpaceParams::default());
+        for i in 0..4096 {
+            let s = if i % 2 == 0 { 10.0 } else { -10.0 };
+            let (ol, or) = p.process_stereo(s, -s);
+            assert!(ol.is_finite() && or.is_finite());
+        }
+    }
+
+    #[test]
+    fn set_params_does_not_panic_under_sweep() {
+        let mut p = SpaceProcessor::new(SR, SpaceParams::default());
+        for w in [0.0_f32, 0.5, 1.0, 1.5, 2.0] {
+            p.set_params(SpaceParams {
+                width: w,
+                bass_keep_hz: 150.0,
+                mix: 1.0,
+                bypass: false,
+            });
+            for _ in 0..256 {
+                let _ = p.process_stereo(0.3, -0.3);
+            }
+        }
+    }
+
+    #[test]
+    fn reset_clears_filter_state() {
+        let mut p = SpaceProcessor::new(SR, SpaceParams::default());
+        for _ in 0..1024 {
+            let _ = p.process_stereo(1.0, -1.0);
+        }
+        p.reset();
+        let mut tail = 0.0_f32;
+        for _ in 0..2048 {
+            let (ol, or) = p.process_stereo(0.0, 0.0);
+            tail = tail.max(ol.abs()).max(or.abs());
+        }
+        assert!(tail < 1.0e-5);
+    }
+}

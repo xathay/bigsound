@@ -242,3 +242,125 @@ impl LoudnessProcessor {
         self.limiter.process_stereo(mixed_l, mixed_r)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SR: f32 = 48000.0;
+
+    fn sine_pair(freq: f32, n: usize, sr: f32, amp: f32) -> Vec<(f32, f32)> {
+        (0..n)
+            .map(|i| {
+                let s = (2.0 * std::f32::consts::PI * freq * i as f32 / sr).sin() * amp;
+                (s, s)
+            })
+            .collect()
+    }
+
+    fn process(p: &mut LoudnessProcessor, input: &[(f32, f32)]) -> Vec<(f32, f32)> {
+        input.iter().map(|&(l, r)| p.process_stereo(l, r)).collect()
+    }
+
+    #[test]
+    fn bypass_passes_input_through() {
+        let mut p = LoudnessProcessor::new(
+            SR,
+            LoudnessParams {
+                bypass: true,
+                ..Default::default()
+            },
+        );
+        let input = sine_pair(440.0, 512, SR, 0.5);
+        let output = process(&mut p, &input);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn zero_mix_with_unity_ceiling_is_near_identity() {
+        let mut p = LoudnessProcessor::new(
+            SR,
+            LoudnessParams {
+                amount: 0.0,
+                mix: 0.0,
+                ceiling_db: 0.0,
+                bypass: false,
+            },
+        );
+        let input = sine_pair(440.0, 4096, SR, 0.4);
+        let output = process(&mut p, &input);
+        for ((il, _), (ol, _)) in input[2048..].iter().zip(output[2048..].iter()) {
+            assert!((il - ol).abs() < 1.0e-2, "{il} vs {ol}");
+        }
+    }
+
+    #[test]
+    fn output_respects_ceiling() {
+        let mut p = LoudnessProcessor::new(
+            SR,
+            LoudnessParams {
+                amount: 0.8,
+                ceiling_db: -1.0,
+                mix: 1.0,
+                bypass: false,
+            },
+        );
+        let input = sine_pair(200.0, 8192, SR, 1.5);
+        let output = process(&mut p, &input);
+        // Allow a small overshoot during attack convergence; tail must obey.
+        let ceiling_linear = 10.0_f32.powf(-1.0 / 20.0);
+        let tail_peak = output[4096..]
+            .iter()
+            .fold(0.0_f32, |a, &(l, r)| a.max(l.abs()).max(r.abs()));
+        assert!(tail_peak <= ceiling_linear + 0.05, "tail peak {tail_peak} > {ceiling_linear}");
+    }
+
+    #[test]
+    fn peak_floor_keeps_silence_finite() {
+        // The 1e-10 floor in the peak detector exists so that log10(peak)
+        // stays finite when the input is exact zero. Without it the gain
+        // calculation would produce -Inf and propagate.
+        let mut p = LoudnessProcessor::new(SR, LoudnessParams::default());
+        for _ in 0..4096 {
+            let (l, r) = p.process_stereo(0.0, 0.0);
+            assert!(l.is_finite() && r.is_finite());
+        }
+    }
+
+    #[test]
+    fn output_is_finite_under_extreme_input() {
+        let mut p = LoudnessProcessor::new(SR, LoudnessParams::default());
+        let input: Vec<(f32, f32)> = (0..4096)
+            .map(|i| if i % 2 == 0 { (8.0, -8.0) } else { (-8.0, 8.0) })
+            .collect();
+        let output = process(&mut p, &input);
+        assert!(output.iter().all(|&(l, r)| l.is_finite() && r.is_finite()));
+    }
+
+    #[test]
+    fn set_params_does_not_panic_under_sweep() {
+        let mut p = LoudnessProcessor::new(SR, LoudnessParams::default());
+        for amount in [0.0_f32, 0.3, 0.6, 1.0] {
+            p.set_params(LoudnessParams {
+                amount,
+                ceiling_db: -1.0,
+                mix: 1.0,
+                bypass: false,
+            });
+            let _ = process(&mut p, &sine_pair(440.0, 256, SR, 0.5));
+        }
+    }
+
+    #[test]
+    fn reset_clears_state() {
+        let mut p = LoudnessProcessor::new(SR, LoudnessParams::default());
+        // Drive gain reduction down hard with a hot signal.
+        let _ = process(&mut p, &sine_pair(200.0, 4096, SR, 1.5));
+        p.reset();
+        let output = process(&mut p, &sine_pair(200.0, 256, SR, 0.1));
+        // After reset, gain reduction starts at 0, so quiet input shouldn't be over-attenuated.
+        let peak_in = 0.1_f32;
+        let peak_out = output.iter().fold(0.0_f32, |a, &(l, _)| a.max(l.abs()));
+        assert!(peak_out > peak_in * 0.5);
+    }
+}

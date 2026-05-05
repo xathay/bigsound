@@ -355,3 +355,113 @@ impl BassEnhancer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SR: f32 = 48000.0;
+
+    fn sine(freq: f32, n: usize, sr: f32) -> Vec<f32> {
+        (0..n)
+            .map(|i| (2.0 * std::f32::consts::PI * freq * i as f32 / sr).sin() * 0.5)
+            .collect()
+    }
+
+    fn process_mono(enh: &mut BassEnhancer, input: &[f32]) -> Vec<f32> {
+        input
+            .iter()
+            .map(|&x| {
+                let mut frame = [x];
+                enh.process_frame(&mut frame);
+                frame[0]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn bypass_passes_input_through() {
+        let mut enh = BassEnhancer::new(
+            1,
+            SR,
+            BassEnhancerParams {
+                bypass: true,
+                ..Default::default()
+            },
+        );
+        let input = sine(440.0, 512, SR);
+        let output = process_mono(&mut enh, &input);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn silence_in_silence_out_within_tolerance() {
+        let mut enh = BassEnhancer::new(1, SR, BassEnhancerParams::default());
+        let output = process_mono(&mut enh, &vec![0.0; 4096]);
+        // Steady-state output on silence must be tiny — the only
+        // contribution is the anti-denormal seed propagating through.
+        let tail_max = output[2048..].iter().fold(0.0_f32, |a, &x| a.max(x.abs()));
+        assert!(tail_max < 1.0e-3, "tail max = {tail_max}");
+    }
+
+    #[test]
+    fn output_is_finite_for_sine_input() {
+        let mut enh = BassEnhancer::new(1, SR, BassEnhancerParams::default());
+        let output = process_mono(&mut enh, &sine(120.0, 4096, SR));
+        assert!(output.iter().all(|x| x.is_finite()));
+    }
+
+    #[test]
+    fn limiter_caps_loud_makeup_below_unity() {
+        let mut enh = BassEnhancer::new(
+            1,
+            SR,
+            BassEnhancerParams {
+                loudness_db: 12.0,
+                drive: 1.0,
+                mix: 1.0,
+                ..Default::default()
+            },
+        );
+        let input: Vec<f32> = sine(100.0, 4096, SR).iter().map(|x| x * 1.8).collect();
+        let output = process_mono(&mut enh, &input);
+        let peak = output[2048..].iter().fold(0.0_f32, |a, &x| a.max(x.abs()));
+        assert!(peak <= 1.0, "limiter let peak through: {peak}");
+    }
+
+    #[test]
+    fn output_is_finite_for_extreme_input() {
+        let mut enh = BassEnhancer::new(1, SR, BassEnhancerParams::default());
+        let input: Vec<f32> = (0..4096).map(|i| if i % 2 == 0 { 10.0 } else { -10.0 }).collect();
+        let output = process_mono(&mut enh, &input);
+        assert!(output.iter().all(|x| x.is_finite()));
+    }
+
+    #[test]
+    fn set_params_does_not_panic_under_param_sweep() {
+        let mut enh = BassEnhancer::new(1, SR, BassEnhancerParams::default());
+        for f in [60.0, 100.0, 180.0, 300.0] {
+            enh.set_params(BassEnhancerParams {
+                target_freq: f,
+                drive: 0.5,
+                mix: 0.7,
+                loudness_db: 0.0,
+                ..Default::default()
+            });
+            let _ = process_mono(&mut enh, &sine(f, 256, SR));
+        }
+    }
+
+    #[test]
+    fn reset_clears_filter_state() {
+        let mut enh = BassEnhancer::new(1, SR, BassEnhancerParams::default());
+        // Excite filters with a transient.
+        let _ = process_mono(&mut enh, &vec![1.0; 1024]);
+        enh.reset();
+        // After reset, the response to silence must converge near 0 fast.
+        let output = process_mono(&mut enh, &vec![0.0; 2048]);
+        let early_max = output[..256].iter().fold(0.0_f32, |a, &x| a.max(x.abs()));
+        let late_max = output[1024..].iter().fold(0.0_f32, |a, &x| a.max(x.abs()));
+        assert!(late_max <= early_max + 1.0e-6);
+    }
+}
