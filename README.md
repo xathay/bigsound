@@ -87,9 +87,9 @@ Built-in profiles:
 - **BigSound** (fallback) — balanced hi-fi-friendly default that works
   on any unknown hardware
 
-Plus 9 hand-crafted manual presets: *Studio Reference*, *Atmos / Cinema*,
-*Audiophile*, *Punchy*, *Gaming*, *Voice / Podcast*, *Bass Heavy*,
-*Late Night*, *Live / Concert*.
+Plus 10 hand-crafted manual presets: *Studio Reference*, *Atmos / Cinema*,
+*Headphones - Cinema*, *Audiophile*, *Punchy*, *Gaming*, *Voice / Podcast*,
+*Bass Heavy*, *Late Night*, *Live / Concert*.
 
 ## Install
 
@@ -167,6 +167,7 @@ the matching profile.
 | BigSound             | (fallback for unknown hardware)            | Balanced hi-fi          |
 | Studio Reference     | manual                                     | Transparent / passthrough |
 | Atmos / Cinema       | manual                                     | Wide + crossfeed + bass |
+| Headphones - Cinema  | manual                                     | Maximalist Bauer crossfeed for stereo cinema content (no HRTF yet) |
 | Audiophile           | manual                                     | Minimal coloration      |
 | Punchy               | manual                                     | FxSound-style aggressive |
 | Gaming               | manual                                     | Wide stereo, transients |
