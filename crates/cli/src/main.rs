@@ -69,7 +69,27 @@ enum ProfileCmd {
     Active,
 }
 
+/// Restore the default SIGPIPE disposition so that piping into `head`, `less`,
+/// etc. terminates the process silently with status 141 instead of panicking
+/// inside `println!`. Rust ignores SIGPIPE by default, which turns broken-pipe
+/// writes into `io::ErrorKind::BrokenPipe`; the `print*!` macros then panic.
+#[cfg(unix)]
+fn reset_sigpipe() {
+    unsafe extern "C" {
+        fn signal(signum: i32, handler: usize) -> usize;
+    }
+    const SIGPIPE: i32 = 13;
+    const SIG_DFL: usize = 0;
+    unsafe {
+        signal(SIGPIPE, SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn reset_sigpipe() {}
+
 fn main() -> Result<()> {
+    reset_sigpipe();
     let cli = Cli::parse();
     let conn = Connection::session().context("connecting to D-Bus session bus")?;
     let proxy = Proxy::new(&conn, SERVICE, PATH, IFACE)
