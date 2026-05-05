@@ -224,6 +224,7 @@ name = "big-bass-ladspa"
 version = "0.1.0"
 dependencies = [
  "big-bass",
+ "ladspa-wrapper",
 ]
 
 [[package]]
@@ -238,6 +239,7 @@ name = "big-clarity-ladspa"
 version = "0.1.0"
 dependencies = [
  "big-clarity",
+ "ladspa-wrapper",
 ]
 
 [[package]]
@@ -252,6 +254,7 @@ name = "big-cross-ladspa"
 version = "0.1.0"
 dependencies = [
  "big-cross",
+ "ladspa-wrapper",
 ]
 
 [[package]]
@@ -263,6 +266,7 @@ name = "big-loud-ladspa"
 version = "0.1.0"
 dependencies = [
  "big-loud",
+ "ladspa-wrapper",
 ]
 
 [[package]]
@@ -277,6 +281,7 @@ name = "big-space-ladspa"
 version = "0.1.0"
 dependencies = [
  "big-space",
+ "ladspa-wrapper",
 ]
 
 [[package]]
@@ -979,6 +984,10 @@ dependencies = [
  "once_cell",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "ladspa-wrapper"
+version = "0.1.0"
 
 [[package]]
 name = "lazy_static"

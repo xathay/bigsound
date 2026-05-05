@@ -1,0 +1,8 @@
+[package]
+name = "ladspa-wrapper"
+description = "Shared FFI scaffolding for the BigSound LADSPA plugin wrappers"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "ladspa_wrapper"

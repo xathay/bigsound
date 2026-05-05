@@ -4,57 +4,13 @@
 #![allow(non_upper_case_globals)]
 
 use big_space::{SpaceParams, SpaceProcessor};
-use std::ffi::c_ulong;
-use std::os::raw::{c_char, c_void};
-
-const LADSPA_PROPERTY_HARD_RT_CAPABLE: i32 = 0x4;
-
-const LADSPA_PORT_INPUT: i32 = 0x1;
-const LADSPA_PORT_OUTPUT: i32 = 0x2;
-const LADSPA_PORT_CONTROL: i32 = 0x4;
-const LADSPA_PORT_AUDIO: i32 = 0x8;
-
-const LADSPA_HINT_BOUNDED_BELOW: i32 = 0x1;
-const LADSPA_HINT_BOUNDED_ABOVE: i32 = 0x2;
-const LADSPA_HINT_DEFAULT_LOW: i32 = 0x80;
-const LADSPA_HINT_DEFAULT_MIDDLE: i32 = 0xC0;
-const LADSPA_HINT_DEFAULT_MAXIMUM: i32 = 0x140;
-
-#[repr(C)]
-struct PortRangeHint {
-    hint_descriptor: i32,
-    lower_bound: f32,
-    upper_bound: f32,
-}
-
-#[repr(C)]
-struct Descriptor {
-    unique_id: c_ulong,
-    label: *const c_char,
-    properties: i32,
-    name: *const c_char,
-    maker: *const c_char,
-    copyright: *const c_char,
-    port_count: c_ulong,
-    port_descriptors: *const i32,
-    port_names: *const *const c_char,
-    port_range_hints: *const PortRangeHint,
-    impl_data: *mut c_void,
-    instantiate: Option<unsafe extern "C" fn(*const Descriptor, c_ulong) -> *mut c_void>,
-    connect_port: Option<unsafe extern "C" fn(*mut c_void, c_ulong, *mut f32)>,
-    activate: Option<unsafe extern "C" fn(*mut c_void)>,
-    run: Option<unsafe extern "C" fn(*mut c_void, c_ulong)>,
-    run_adding: Option<unsafe extern "C" fn(*mut c_void, c_ulong)>,
-    set_run_adding_gain: Option<unsafe extern "C" fn(*mut c_void, f32)>,
-    deactivate: Option<unsafe extern "C" fn(*mut c_void)>,
-    cleanup: Option<unsafe extern "C" fn(*mut c_void)>,
-}
-
-unsafe impl Sync for Descriptor {}
-
-#[repr(transparent)]
-struct CCharPtrArray<const N: usize>([*const c_char; N]);
-unsafe impl<const N: usize> Sync for CCharPtrArray<N> {}
+use ladspa_wrapper::{
+    c_char, c_ulong, c_void, read_control, CCharPtrArray, Descriptor, PortRangeHint,
+    LADSPA_HINT_BOUNDED_ABOVE, LADSPA_HINT_BOUNDED_BELOW, LADSPA_HINT_DEFAULT_LOW,
+    LADSPA_HINT_DEFAULT_MAXIMUM, LADSPA_HINT_DEFAULT_MIDDLE, LADSPA_PORT_AUDIO,
+    LADSPA_PORT_CONTROL, LADSPA_PORT_INPUT, LADSPA_PORT_OUTPUT,
+    LADSPA_PROPERTY_HARD_RT_CAPABLE, NO_HINT,
+};
 
 const PORT_WIDTH: usize = 0;
 const PORT_BASS_KEEP: usize = 1;
@@ -94,7 +50,7 @@ static PORT_NAMES: CCharPtrArray<PORT_COUNT> = CCharPtrArray([
 ]);
 
 static PORT_HINTS: [PortRangeHint; PORT_COUNT] = [
-    // width: 0..=2, default ~1.3 (between MIDDLE=1.0 and HIGH=1.5)
+    // width: 0..=2, default ~1.0 from MIDDLE
     PortRangeHint {
         hint_descriptor: LADSPA_HINT_BOUNDED_BELOW
             | LADSPA_HINT_BOUNDED_ABOVE
@@ -118,10 +74,10 @@ static PORT_HINTS: [PortRangeHint; PORT_COUNT] = [
         lower_bound: 0.0,
         upper_bound: 1.0,
     },
-    PortRangeHint { hint_descriptor: 0, lower_bound: 0.0, upper_bound: 0.0 },
-    PortRangeHint { hint_descriptor: 0, lower_bound: 0.0, upper_bound: 0.0 },
-    PortRangeHint { hint_descriptor: 0, lower_bound: 0.0, upper_bound: 0.0 },
-    PortRangeHint { hint_descriptor: 0, lower_bound: 0.0, upper_bound: 0.0 },
+    NO_HINT,
+    NO_HINT,
+    NO_HINT,
+    NO_HINT,
 ];
 
 static LABEL: &[u8] = b"big_space\0";
@@ -203,21 +159,9 @@ unsafe extern "C" fn activate(handle: *mut c_void) {
 unsafe extern "C" fn run(handle: *mut c_void, sample_count: c_ulong) {
     let inst = unsafe { &mut *(handle as *mut Instance) };
 
-    let width = if inst.port_width.is_null() {
-        1.3
-    } else {
-        unsafe { *inst.port_width }
-    };
-    let bass_keep = if inst.port_bass_keep.is_null() {
-        200.0
-    } else {
-        unsafe { *inst.port_bass_keep }
-    };
-    let mix = if inst.port_mix.is_null() {
-        1.0
-    } else {
-        unsafe { *inst.port_mix }
-    };
+    let width = unsafe { read_control(inst.port_width, 1.3) };
+    let bass_keep = unsafe { read_control(inst.port_bass_keep, 200.0) };
+    let mix = unsafe { read_control(inst.port_mix, 1.0) };
 
     let params = SpaceParams {
         width: width.clamp(0.0, 2.0),
@@ -258,9 +202,5 @@ unsafe extern "C" fn cleanup(handle: *mut c_void) {
 
 #[no_mangle]
 pub extern "C" fn ladspa_descriptor(index: c_ulong) -> *const c_void {
-    if index == 0 {
-        &DESCRIPTOR as *const Descriptor as *const c_void
-    } else {
-        std::ptr::null()
-    }
+    unsafe { ladspa_wrapper::descriptor_or_null(index, &DESCRIPTOR) }
 }

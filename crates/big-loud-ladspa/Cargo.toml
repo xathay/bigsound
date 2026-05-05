@@ -10,3 +10,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 big-loud = { path = "../big-loud" }
+ladspa-wrapper = { path = "../ladspa-wrapper" }

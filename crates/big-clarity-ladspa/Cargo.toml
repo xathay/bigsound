@@ -10,3 +10,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 big-clarity = { path = "../big-clarity" }
+ladspa-wrapper = { path = "../ladspa-wrapper" }
