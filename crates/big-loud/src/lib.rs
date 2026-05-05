@@ -228,6 +228,17 @@ impl LoudnessProcessor {
 
     #[inline]
     pub fn process_stereo(&mut self, l: f32, r: f32) -> (f32, f32) {
+        // Sanitise NaN/Inf at the audio boundary. Without this, a single
+        // upstream glitch poisons `Compressor::gain_db` and
+        // `StereoPeakLimiter::gain` permanently — every subsequent sample
+        // would come out NaN until `reset()` is called. The D-Bus boundary
+        // already rejects non-finite parameter writes; this is the
+        // equivalent for the audio path.
+        let (l, r) = (
+            if l.is_finite() { l } else { 0.0 },
+            if r.is_finite() { r } else { 0.0 },
+        );
+
         if self.params.bypass {
             return (l, r);
         }
@@ -335,6 +346,19 @@ mod tests {
             .collect();
         let output = process(&mut p, &input);
         assert!(output.iter().all(|&(l, r)| l.is_finite() && r.is_finite()));
+    }
+
+    #[test]
+    fn nan_input_does_not_poison_state() {
+        // A NaN sample must be sanitised at the audio boundary so it does
+        // not propagate into `Compressor::gain_db` / limiter gain — those
+        // would then emit NaN forever on otherwise-finite input.
+        let mut p = LoudnessProcessor::new(SR, LoudnessParams::default());
+        let _ = p.process_stereo(f32::NAN, 0.5);
+        let _ = p.process_stereo(0.5, f32::INFINITY);
+        let _ = p.process_stereo(f32::NEG_INFINITY, f32::NAN);
+        let recovery = process(&mut p, &sine_pair(440.0, 1024, SR, 0.4));
+        assert!(recovery.iter().all(|&(l, r)| l.is_finite() && r.is_finite()));
     }
 
     #[test]
