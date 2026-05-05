@@ -71,8 +71,13 @@ pub struct BassEnhancerParams {
     /// Mix amount of the synthesised harmonics into the dry signal. 0..=1
     pub mix: f32,
     /// High-pass the dry signal at `target_freq` so cone excursion isn't
-    /// wasted on un-reproducible content.
-    pub cut_dry_lows: bool,
+    /// wasted on un-reproducible content. Treated as a soft boolean: any
+    /// value `> 0.5` enables the high-pass. The field is `f32` rather
+    /// than `bool` to keep the public API uniform with the rest of the
+    /// parameter set (every other field is a continuous control), which
+    /// matters for the JSON profile schema and the LADSPA bridge — both
+    /// wire all controls through the same `f32` path.
+    pub cut_dry_lows: f32,
     /// Make-up gain in dB applied after the harmonic mix. Combined with
     /// the built-in peak limiter, this raises perceived loudness without
     /// clipping — the "FxSound-on" feel where flipping the effect on
@@ -88,7 +93,7 @@ impl Default for BassEnhancerParams {
             target_freq: 100.0,
             drive: 0.6,
             mix: 0.5,
-            cut_dry_lows: false,
+            cut_dry_lows: 0.0,
             loudness_db: 4.0,
             bypass: false,
         }
@@ -282,7 +287,7 @@ impl BassEnhancerChannel {
         let harm_out = harm * gate;
 
         // 7. Optional cut of un-reproducible lows on the dry signal.
-        let dry = if params.cut_dry_lows {
+        let dry = if params.cut_dry_lows > 0.5 {
             let mut d = input_safe;
             for f in &mut self.dry_hp {
                 d = f.process(d);

@@ -190,7 +190,7 @@ unsafe extern "C" fn run(handle: *mut c_void, sample_count: c_ulong) {
         target_freq: target.clamp(40.0, 300.0),
         drive: drive.clamp(0.0, 1.0),
         mix: mix.clamp(0.0, 1.0),
-        cut_dry_lows: cut > 0.5,
+        cut_dry_lows: cut.clamp(0.0, 1.0),
         loudness_db: loudness.clamp(-12.0, 12.0),
         bypass: false,
     };

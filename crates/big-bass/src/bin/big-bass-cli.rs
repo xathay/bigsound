@@ -90,7 +90,7 @@ fn main() -> anyhow::Result<()> {
         target_freq: cli.target,
         drive: cli.drive / 100.0,
         mix: cli.mix / 100.0,
-        cut_dry_lows: cli.cut_dry_lows,
+        cut_dry_lows: if cli.cut_dry_lows { 1.0 } else { 0.0 },
         loudness_db: cli.loudness,
         bypass: cli.bypass,
     };
