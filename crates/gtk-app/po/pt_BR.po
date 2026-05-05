@@ -176,6 +176,9 @@ msgstr "Ao Vivo / Concerto"
 
 # === Error messages ===
 
+msgid "BigSound app: cannot reach session bus"
+msgstr "BigSound: não foi possível acessar o barramento de sessão"
+
 msgid "BigSound app: bigsound-daemon doesn't seem to be running."
 msgstr "BigSound: o bigsound-daemon não parece estar rodando."
 
