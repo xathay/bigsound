@@ -3,7 +3,7 @@
 
 pkgname=bigsound
 pkgver=0.7.0
-pkgrel=1
+pkgrel=2
 pkgdesc='System-wide audio enhancement for BigCommunity (BigBass + BigClarity + BigSpace + BigCross + BigLoud) with auto-profile per output device'
 arch=('x86_64')
 url='https://github.com/xathay/bigsound'

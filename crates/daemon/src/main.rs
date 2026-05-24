@@ -40,7 +40,7 @@ use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -333,30 +333,73 @@ fn push_internal_value(node_id: u32, internal: &str, value: f64) -> Result<()> {
         .args(["set-param", &node_id.to_string(), "Props", &pod])
         .output()
         .context("running pw-cli set-param")?;
-    if !output.status.success() {
+    // pw-cli exits 0 even when set-param fails — it just prints
+    // `Error: "..."` on stdout/stderr. Treat any such marker as failure
+    // so the caller can react (e.g. re-discover the node id).
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if !output.status.success() || stderr.contains("Error:") || stdout.contains("Error:") {
         bail!(
             "pw-cli set-param failed: {}",
-            String::from_utf8_lossy(&output.stderr)
+            if !stderr.trim().is_empty() {
+                stderr.into_owned()
+            } else {
+                stdout.into_owned()
+            }
         );
     }
     Ok(())
 }
 
+/// Push one value, refreshing the cached node id once if pw-cli rejects
+/// the target (filter-chain.service restarts hand out new node ids and
+/// our cached one goes stale — without this retry, every Set/ApplyProfile
+/// silently no-ops until the daemon itself is restarted).
+fn push_with_refresh(node_id_atom: &AtomicU32, internal: &str, value: f64) -> Result<()> {
+    let nid = node_id_atom.load(Ordering::Acquire);
+    match push_internal_value(nid, internal, value) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let msg = e.to_string();
+            // pw-cli's "no global N" / "unknown" responses indicate the
+            // node went away. Anything else (e.g. ENOENT for pw-cli itself)
+            // we propagate without thrashing pw-dump.
+            let looks_stale = msg.contains("no global")
+                || msg.contains("unknown")
+                || msg.contains("No such")
+                || msg.contains("not found");
+            if !looks_stale {
+                return Err(e);
+            }
+            match discover_bigsound_node_id() {
+                Ok(fresh) if fresh != nid => {
+                    eprintln!(
+                        "bigsound-daemon: BigSound node id changed {nid} → {fresh} (filter-chain restarted?); retrying push"
+                    );
+                    node_id_atom.store(fresh, Ordering::Release);
+                    push_internal_value(fresh, internal, value)
+                }
+                _ => Err(e),
+            }
+        }
+    }
+}
+
 /// Push every cache entry to PipeWire (best-effort, silent on failure).
-fn push_cache_to_pipewire(node_id: u32, cache: &HashMap<String, f64>) {
+fn push_cache_to_pipewire(node_id_atom: &AtomicU32, cache: &HashMap<String, f64>) {
     for (public, internals, _) in PARAMS {
         let value = match cache.get(*public) {
             Some(v) => *v,
             None => continue,
         };
         for internal in *internals {
-            let _ = push_internal_value(node_id, internal, value);
+            let _ = push_with_refresh(node_id_atom, internal, value);
         }
     }
 }
 
 struct ServiceInner {
-    node_id: u32,
+    node_id: AtomicU32,
     cache: Mutex<HashMap<String, f64>>,
     /// Bumped on every cache mutation. The background thread compares
     /// against `last_pushed_gen` to skip re-pushing when nothing has
@@ -378,7 +421,7 @@ impl ServiceInner {
             cache.insert((*name).to_string(), *default);
         }
         Self {
-            node_id,
+            node_id: AtomicU32::new(node_id),
             cache: Mutex::new(cache),
             cache_gen: AtomicU64::new(0),
             profiles: Mutex::new(load_profiles()),
@@ -404,7 +447,7 @@ impl ServiceInner {
         let snapshot = cache.clone();
         drop(cache);
         self.bump_cache_gen();
-        push_cache_to_pipewire(self.node_id, &snapshot);
+        push_cache_to_pipewire(&self.node_id, &snapshot);
         *self
             .active_profile
             .lock()
@@ -432,7 +475,7 @@ impl BigSoundService {
         }
         self.inner.bump_cache_gen();
         for internal in internals {
-            let _ = push_internal_value(self.inner.node_id, internal, value);
+            let _ = push_with_refresh(&self.inner.node_id, internal, value);
         }
         Ok(())
     }
@@ -571,7 +614,7 @@ impl BigSoundService {
 
     #[zbus(property)]
     fn node_id(&self) -> u32 {
-        self.inner.node_id
+        self.inner.node_id.load(Ordering::Acquire)
     }
 
     #[zbus(property)]
@@ -606,7 +649,7 @@ fn run_background(inner: Arc<ServiceInner>) {
             if let Ok(cache) = inner.cache.lock() {
                 let snapshot = cache.clone();
                 drop(cache);
-                push_cache_to_pipewire(inner.node_id, &snapshot);
+                push_cache_to_pipewire(&inner.node_id, &snapshot);
                 last_pushed_gen = current_gen;
             }
         }
@@ -679,7 +722,7 @@ fn main() -> Result<()> {
     // matches our defaults from the get-go.
     {
         let cache = inner.cache.lock().unwrap_or_else(|e| e.into_inner());
-        push_cache_to_pipewire(node_id, &cache);
+        push_cache_to_pipewire(&inner.node_id, &cache);
     }
     eprintln!(
         "bigsound-daemon: loaded {} profile(s) from {}",
