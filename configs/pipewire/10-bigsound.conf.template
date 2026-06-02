@@ -128,6 +128,14 @@ context.modules = [
                 media.class           = "Audio/Sink"
                 audio.position        = [ FL FR ]
                 node.suspend-on-idle  = false
+                # Lock the chain to a moderate quantum. Without this the
+                # filter-chain follows the driver and Bluetooth sinks (which
+                # negotiate ~150–250 ms internal buffers) can underrun when
+                # the DSP hits a CPU spike — heard as glitches/cuts on
+                # YouTube. 1024/48000 ≈ 21 ms gives the chain enough headroom
+                # while staying responsive for desktop use.
+                node.latency          = "1024/48000"
+                node.lock-quantum     = true
             }
 
             playback.props = {
@@ -135,6 +143,7 @@ context.modules = [
                 node.passive          = true
                 audio.position        = [ FL FR ]
                 node.suspend-on-idle  = false
+                node.latency          = "1024/48000"
             }
         }
     }
