@@ -2,6 +2,12 @@
 /target/
 **/target/
 
+# makepkg build artifacts (local package builds).
+packaging/pkg/
+packaging/src/
+packaging/*.pkg.tar*
+packaging/*.log
+
 # Test audio files (offline DSP validation).
 *.wav
 

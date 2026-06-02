@@ -98,11 +98,10 @@ package() {
         configs/pipewire/10-bigsound.conf.template                      \
         > "$pkgdir/usr/share/pipewire/filter-chain.conf.d/10-bigsound.conf"
 
-    # Bundled profiles — read by the daemon as fallback when the user
-    # has no profile dir of their own. (Daemon currently looks in
-    # ~/.config/bigsound/profiles/ only — once we add /usr/share/bigsound
-    # as a fallback path in the daemon, packaged installs work without
-    # an `install.sh` step.)
+    # Bundled profiles — the daemon loads these from
+    # /usr/share/bigsound/profiles/ and merges them with the user's own
+    # ~/.config/bigsound/profiles/ (user files win on name conflict), so
+    # a packaged install ships every profile with no `install.sh` step.
     install -dm755 "$pkgdir/usr/share/bigsound/profiles"
     for f in crates/daemon/data/profiles/*.json; do
         install -Dm644 "$f" "$pkgdir/usr/share/bigsound/profiles/$(basename "$f")"
