@@ -180,9 +180,11 @@ Pick from the dropdown when you want a specific character:
   cinema content on headphones. DSP-only; full HRTF binaural will arrive
   in a later release.
 
-- **Punchy** — *the FxSound feel*. Bass +6 dB, full compression, max
-  squash. The "passthrough is half the volume" effect. Great for laptop /
-  car speakers / any "I want obvious impact" scenario. Fatiguing on good
+- **Punchy** — *the FxSound feel*. Bass +8 dB, full compression, max
+  squash. The "passthrough is half the volume" effect. Pushes harder than
+  the auto Laptop Speaker profile (more sub, more presence, wider image)
+  so the impact is obvious on any hardware. Great for laptop / car
+  speakers / any "I want obvious impact" scenario. Fatiguing on good
   headphones.
 
 - **Gaming** — *positional + impact*. Maximum widening (1.6) for
