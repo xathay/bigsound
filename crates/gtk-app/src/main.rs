@@ -108,6 +108,30 @@ impl Bus {
             Some(name)
         }
     }
+
+    /// Real sinks BigSound can be routed through, as `(node.name,
+    /// description)` pairs. `node.name` is the stable id passed back to
+    /// `SetOutputDevice`; `description` is the human label.
+    fn list_output_devices(&self) -> Vec<(String, String)> {
+        self.proxy()
+            .and_then(|p| p.call("ListOutputDevices", &()))
+            .unwrap_or_default()
+    }
+
+    /// The currently chosen output sink (`node.name`), or "" for automatic.
+    fn output_device(&self) -> String {
+        self.proxy()
+            .and_then(|p| p.call("GetOutputDevice", &()))
+            .unwrap_or_default()
+    }
+
+    /// Route BigSound's DSP output to `name` (a sink `node.name`), or pass
+    /// "" to return to automatic priority-based routing.
+    fn set_output_device(&self, name: &str) {
+        if let Ok(p) = self.proxy() {
+            let _ = p.call::<_, _, ()>("SetOutputDevice", &(name,));
+        }
+    }
 }
 
 /// Spec for one slider row. `title` and `subtitle` are translatable strings
@@ -354,6 +378,50 @@ fn build_slider_row(
     row
 }
 
+/// Build the "Output device" combo row. The first entry is always
+/// "Automatic" (follow WirePlumber priority — the out-of-box behaviour);
+/// the rest are the real sinks the daemon reports. Picking a specific
+/// device pins BigSound's DSP output there so a high-priority USB gadget
+/// (e.g. a microphone that also exposes a playback endpoint) can't steal
+/// the routing. The device list is read once at window build; reopening
+/// the window refreshes it.
+fn build_output_device_row(bus: &Bus) -> adw::ComboRow {
+    let devices = bus.list_output_devices();
+    let current = bus.output_device();
+
+    // Index 0 = automatic (empty node.name); the rest mirror the daemon's
+    // order. `names` and the model rows stay in lock-step so a selection
+    // maps cleanly back to the canonical node.name.
+    let mut names: Vec<String> = vec![String::new()];
+    let mut labels: Vec<String> = vec![tr("Automatic (follow priority)")];
+    for (name, desc) in &devices {
+        names.push(name.clone());
+        labels.push(desc.clone());
+    }
+    let label_strs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
+    let model = gtk::StringList::new(&label_strs);
+
+    let row = adw::ComboRow::builder()
+        .title(tr("Output device"))
+        .subtitle(tr("Which speakers or headphones BigSound plays through"))
+        .build();
+    row.set_model(Some(&model));
+
+    // Pre-select the daemon's current choice before wiring the handler so
+    // the initial set_selected doesn't fire a redundant SetOutputDevice.
+    let sel = names.iter().position(|n| n == &current).unwrap_or(0);
+    row.set_selected(sel as u32);
+
+    let bus = bus.clone();
+    row.connect_selected_notify(move |r| {
+        if let Some(name) = names.get(r.selected() as usize) {
+            bus.set_output_device(name);
+        }
+    });
+
+    row
+}
+
 fn build_window(app: &adw::Application, bus: Bus) {
     let scales: Rc<RefCell<Vec<(gtk::Scale, SliderSpec)>>> = Rc::new(RefCell::new(Vec::new()));
 
@@ -420,16 +488,14 @@ fn build_window(app: &adw::Application, bus: Bus) {
 
     page.add(&group);
 
-    // Footer with status + a hint about output device selection.
-    let hint_group = adw::PreferencesGroup::new();
-    let hint_row = adw::ActionRow::builder()
-        .title(tr("Output device"))
-        .subtitle(tr(
-            "Pick \"BigSound (DSP)\" in Settings → Sound → Output to route audio through BigSound.",
-        ))
-        .build();
-    hint_group.add(&hint_row);
-    page.add(&hint_group);
+    // Routing group: choose the real device BigSound plays through, with
+    // a reminder to select BigSound as the system output sink.
+    let routing_group = adw::PreferencesGroup::new();
+    routing_group.set_description(Some(&tr(
+        "Pick \"BigSound (DSP)\" in Settings → Sound → Output to route audio through BigSound.",
+    )));
+    routing_group.add(&build_output_device_row(&bus));
+    page.add(&routing_group);
 
     main_box.append(&page);
 

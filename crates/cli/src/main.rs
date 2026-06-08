@@ -13,6 +13,12 @@
 //!   bigsound profile save  <name>          # snapshot current cache as a user profile
 //!   bigsound profile delete <name>         # remove a user-saved profile
 //!   bigsound profile active                # which profile was last applied
+//!
+//! Output device:
+//!   bigsound output list                   # sinks BigSound can play through
+//!   bigsound output show                   # current choice ("" = automatic)
+//!   bigsound output set <node.name>        # pin DSP output to one sink
+//!   bigsound output auto                   # back to automatic routing
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -51,6 +57,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ProfileCmd,
     },
+    /// Output device routing (which real sink BigSound plays through)
+    Output {
+        #[command(subcommand)]
+        cmd: OutputCmd,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -67,6 +78,18 @@ enum ProfileCmd {
     Delete { name: String },
     /// Print the name of the last applied profile (auto or manual)
     Active,
+}
+
+#[derive(Subcommand, Debug)]
+enum OutputCmd {
+    /// List real sinks BigSound can play through (★ marks the current one)
+    List,
+    /// Print the selected output device ("(automatic)" if unset)
+    Show,
+    /// Route BigSound's DSP output to a sink (its node.name, from `list`)
+    Set { name: String },
+    /// Return to automatic routing (follow WirePlumber priority)
+    Auto,
 }
 
 /// Restore the default SIGPIPE disposition so that piping into `head`, `less`,
@@ -163,6 +186,44 @@ fn main() -> Result<()> {
                 } else {
                     println!("{v}");
                 }
+            }
+        },
+        Cmd::Output { cmd } => match cmd {
+            OutputCmd::List => {
+                let devices: Vec<(String, String)> = proxy
+                    .call("ListOutputDevices", &())
+                    .context("calling ListOutputDevices")?;
+                let current: String = proxy
+                    .call("GetOutputDevice", &())
+                    .context("calling GetOutputDevice")?;
+                let marker = if current.is_empty() { "★" } else { " " };
+                println!("{marker} (automatic — follow priority)");
+                for (name, desc) in devices {
+                    let marker = if name == current { "★" } else { " " };
+                    println!("{marker} {desc}  [{name}]");
+                }
+            }
+            OutputCmd::Show => {
+                let current: String = proxy
+                    .call("GetOutputDevice", &())
+                    .context("calling GetOutputDevice")?;
+                if current.is_empty() {
+                    println!("(automatic)");
+                } else {
+                    println!("{current}");
+                }
+            }
+            OutputCmd::Set { name } => {
+                proxy
+                    .call::<_, _, ()>("SetOutputDevice", &(name.as_str(),))
+                    .with_context(|| format!("SetOutputDevice({name})"))?;
+                println!("routing BigSound output to '{name}'");
+            }
+            OutputCmd::Auto => {
+                proxy
+                    .call::<_, _, ()>("SetOutputDevice", &("",))
+                    .context("SetOutputDevice(auto)")?;
+                println!("routing set to automatic (follow priority)");
             }
         },
     }

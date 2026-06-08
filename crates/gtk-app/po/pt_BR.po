@@ -30,6 +30,12 @@ msgstr "Dispositivo de saída"
 msgid "Pick \"BigSound (DSP)\" in Settings → Sound → Output to route audio through BigSound."
 msgstr "Selecione \"BigSound (DSP)\" em Configurações → Som → Saída para enviar o áudio pelo BigSound."
 
+msgid "Automatic (follow priority)"
+msgstr "Automático (segue a prioridade)"
+
+msgid "Which speakers or headphones BigSound plays through"
+msgstr "Por quais alto-falantes ou fones o BigSound toca"
+
 # === Slider titles ===
 
 msgid "Bass"

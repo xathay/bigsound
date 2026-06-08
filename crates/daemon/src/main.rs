@@ -23,6 +23,9 @@
 //!   ApplyProfile(name)           → apply a profile by name
 //!   SaveProfile(name)            → snapshot current cache as a named profile
 //!   DeleteProfile(name)          → remove a profile from disk
+//!   ListOutputDevices() → Vec<(name, description)>  → real sinks to route to
+//!   GetOutputDevice() → name     → chosen output sink ("" = automatic)
+//!   SetOutputDevice(name)        → pin BigSound.output to a sink ("" = auto)
 //!   property NodeId, ActiveProfile
 
 // Caller-identity note: this daemon registers on the D-Bus session bus,
@@ -128,15 +131,47 @@ struct Profile {
     params: HashMap<String, f64>,
 }
 
-fn user_profiles_dir() -> PathBuf {
-    let base = std::env::var("XDG_CONFIG_HOME")
+/// `$XDG_CONFIG_HOME` (or `~/.config`) — the root under which all of
+/// BigSound's per-user state lives.
+fn config_base() -> PathBuf {
+    std::env::var("XDG_CONFIG_HOME")
         .ok()
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
             PathBuf::from(home).join(".config")
-        });
-    base.join("bigsound").join("profiles")
+        })
+}
+
+fn user_profiles_dir() -> PathBuf {
+    config_base().join("bigsound").join("profiles")
+}
+
+/// File holding the user's chosen output device (the real sink BigSound
+/// plays through). Empty/absent = automatic (follow WirePlumber priority).
+fn output_device_state_path() -> PathBuf {
+    config_base().join("bigsound").join("output-device")
+}
+
+/// Load the persisted output-device choice. `None` = automatic.
+fn load_output_device() -> Option<String> {
+    let s = std::fs::read_to_string(output_device_state_path()).ok()?;
+    let s = s.trim();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
+}
+
+/// Persist the output-device choice (best-effort). `None` writes an empty
+/// file meaning "automatic".
+fn save_output_device(target: &Option<String>) {
+    let path = output_device_state_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&path, target.as_deref().unwrap_or(""));
 }
 
 const SYSTEM_PROFILES_DIR: &str = "/usr/share/bigsound/profiles";
@@ -281,7 +316,11 @@ fn current_default_sink_id() -> Option<String> {
     }
 }
 
-fn discover_bigsound_node_id() -> Result<u32> {
+/// Resolve a filter-chain node's current PipeWire id by its `node.name`.
+/// Both the `BigSound` sink and its `BigSound.output` playback stream get
+/// fresh ids every time filter-chain.service restarts, so callers must be
+/// ready to re-resolve.
+fn discover_node_id(node_name: &str) -> Result<u32> {
     let output = Command::new("pw-dump")
         .output()
         .context("running pw-dump (PipeWire installed?)")?;
@@ -303,17 +342,102 @@ fn discover_bigsound_node_id() -> Result<u32> {
             .pointer("/info/props/node.name")
             .and_then(JsonValue::as_str)
             .unwrap_or("");
-        if name == "BigSound" {
+        if name == node_name {
             return Ok(obj
                 .get("id")
                 .and_then(JsonValue::as_u64)
-                .context("BigSound node has no id")? as u32);
+                .with_context(|| format!("{node_name} node has no id"))?
+                as u32);
         }
     }
     bail!(
-        "BigSound sink not found — make sure filter-chain.service is running \
+        "{node_name} node not found — make sure filter-chain.service is running \
          (systemctl --user status filter-chain.service)"
     )
+}
+
+fn discover_bigsound_node_id() -> Result<u32> {
+    discover_node_id("BigSound")
+}
+
+/// Enumerate the real output sinks the user could route BigSound through —
+/// every `Audio/Sink` except BigSound's own virtual sink. Returns
+/// `(node.name, human description)` pairs sorted by description so the GUI
+/// dropdown is stable. `node.name` is the stable identifier we pin
+/// `target.object` to; the description is what the user sees.
+fn list_real_output_sinks() -> Vec<(String, String)> {
+    let Ok(output) = Command::new("pw-dump").output() else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    let Ok(json) = serde_json::from_slice::<JsonValue>(&output.stdout) else {
+        return Vec::new();
+    };
+    let Some(arr) = json.as_array() else {
+        return Vec::new();
+    };
+    let mut sinks = Vec::new();
+    for obj in arr {
+        if obj.get("type").and_then(JsonValue::as_str) != Some("PipeWire:Interface:Node") {
+            continue;
+        }
+        let Some(props) = obj.pointer("/info/props") else {
+            continue;
+        };
+        if props.get("media.class").and_then(JsonValue::as_str) != Some("Audio/Sink") {
+            continue;
+        }
+        let name = props
+            .get("node.name")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("");
+        // Skip empty names and our own virtual sink (routing BigSound into
+        // itself would be a loop).
+        if name.is_empty() || name == "BigSound" {
+            continue;
+        }
+        let desc = props
+            .get("node.description")
+            .and_then(JsonValue::as_str)
+            .or_else(|| props.get("node.nick").and_then(JsonValue::as_str))
+            .unwrap_or(name);
+        sinks.push((name.to_string(), desc.to_string()));
+    }
+    sinks.sort_by(|a, b| a.1.cmp(&b.1));
+    sinks
+}
+
+/// Pin (or clear) the real sink that `BigSound.output` feeds, by writing
+/// `target.object` into PipeWire's `default` metadata — the same lever
+/// `wpctl` / `pavucontrol` use to move a stream. `Some(sink)` forces the
+/// DSP output to that sink regardless of session priority, so a freshly
+/// plugged high-priority USB gadget (e.g. a microphone that also exposes a
+/// playback endpoint) can't steal the routing. `None` deletes the pin and
+/// lets WirePlumber auto-route by priority again.
+fn set_output_target(out_id: u32, target: Option<&str>) -> Result<()> {
+    let mut cmd = Command::new("pw-metadata");
+    cmd.args(["-n", "default"]);
+    match target {
+        Some(sink) => {
+            cmd.arg(out_id.to_string())
+                .arg("target.object")
+                .arg(format!("\"{sink}\""))
+                .arg("Spa:String:JSON");
+        }
+        None => {
+            cmd.arg("-d").arg(out_id.to_string()).arg("target.object");
+        }
+    }
+    let output = cmd.output().context("running pw-metadata")?;
+    if !output.status.success() {
+        bail!(
+            "pw-metadata failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
 }
 
 fn push_internal_value(node_id: u32, internal: &str, value: f64) -> Result<()> {
@@ -412,6 +536,13 @@ struct ServiceInner {
     /// applies a profile when the device actually changes — never on
     /// every tick.
     last_default_sink: Mutex<Option<String>>,
+    /// Last resolved id of the `BigSound.output` playback stream (the node
+    /// we pin `target.object` on). Re-resolved when a filter-chain restart
+    /// hands it a fresh id. 0 = unknown.
+    output_node_id: AtomicU32,
+    /// The real sink the user chose to route BigSound through. `None` =
+    /// automatic (let WirePlumber pick by priority). Persisted to disk.
+    output_device: Mutex<Option<String>>,
 }
 
 impl ServiceInner {
@@ -427,6 +558,33 @@ impl ServiceInner {
             profiles: Mutex::new(load_profiles()),
             active_profile: Mutex::new(None),
             last_default_sink: Mutex::new(None),
+            output_node_id: AtomicU32::new(0),
+            output_device: Mutex::new(load_output_device()),
+        }
+    }
+
+    /// Enforce the configured output target on `BigSound.output`. When a
+    /// device is pinned this re-resolves the (restart-volatile) node id and
+    /// re-asserts the `target.object` metadata, so the choice survives
+    /// filter-chain restarts and suspend→resume. When set to automatic it's
+    /// a cheap no-op — the pin is cleared at the moment the user switches to
+    /// automatic, and a fresh `BigSound.output` starts unpinned anyway.
+    fn enforce_output_device(&self) {
+        let target = self
+            .output_device
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let Some(sink) = target else {
+            return;
+        };
+        let out_id = match discover_node_id("BigSound.output") {
+            Ok(id) => id,
+            Err(_) => return,
+        };
+        self.output_node_id.store(out_id, Ordering::Release);
+        if let Err(e) = set_output_target(out_id, Some(&sink)) {
+            eprintln!("bigsound-daemon: pinning output to '{sink}' failed: {e}");
         }
     }
 
@@ -612,6 +770,73 @@ impl BigSoundService {
         Ok(())
     }
 
+    /// Real output sinks BigSound can be routed through, as
+    /// `(node.name, description)` pairs. The GUI uses `node.name` as the
+    /// `SetOutputDevice` argument and shows `description` to the user.
+    fn list_output_devices(&self) -> zbus::fdo::Result<Vec<(String, String)>> {
+        Ok(list_real_output_sinks())
+    }
+
+    /// The currently chosen output device (`node.name`), or "" for
+    /// automatic (follow WirePlumber priority).
+    fn get_output_device(&self) -> zbus::fdo::Result<String> {
+        Ok(self
+            .inner
+            .output_device
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .unwrap_or_default())
+    }
+
+    /// Choose the real sink BigSound's DSP output feeds. Pass "" / "auto"
+    /// to return to automatic routing, or a sink `node.name` to pin it
+    /// there (overrides session priority so a high-priority USB gadget
+    /// can't steal the routing). The choice is persisted and re-asserted
+    /// across filter-chain restarts.
+    fn set_output_device(&self, name: &str) -> zbus::fdo::Result<()> {
+        let trimmed = name.trim();
+        let new_target: Option<String> = if trimmed.is_empty()
+            || trimmed.eq_ignore_ascii_case("auto")
+            || trimmed.eq_ignore_ascii_case("automatic")
+        {
+            None
+        } else {
+            // Light validation: a sink node.name is printable ASCII, never
+            // our own virtual sink, and bounded so a hostile client can't
+            // smuggle control chars into the metadata pod.
+            let ok = trimmed.len() <= 256
+                && trimmed != "BigSound"
+                && trimmed.chars().all(|c| c.is_ascii_graphic());
+            if !ok {
+                return Err(zbus::fdo::Error::InvalidArgs(format!(
+                    "invalid sink name '{name}'"
+                )));
+            }
+            Some(trimmed.to_string())
+        };
+
+        *self
+            .inner
+            .output_device
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = new_target.clone();
+        save_output_device(&new_target);
+
+        match &new_target {
+            Some(_) => self.inner.enforce_output_device(),
+            None => {
+                // Switching to automatic: delete any pin on the current
+                // output node so WirePlumber resumes priority routing.
+                if let Ok(out_id) = discover_node_id("BigSound.output") {
+                    self.inner.output_node_id.store(out_id, Ordering::Release);
+                    let _ = set_output_target(out_id, None);
+                }
+            }
+        }
+        Ok(())
+    }
+
     #[zbus(property)]
     fn node_id(&self) -> u32 {
         self.inner.node_id.load(Ordering::Acquire)
@@ -653,6 +878,12 @@ fn run_background(inner: Arc<ServiceInner>) {
                 last_pushed_gen = current_gen;
             }
         }
+
+        // (a2) Keep the chosen output device pinned. Cheap no-op when set
+        // to automatic; when a device is pinned it re-asserts target.object
+        // so the choice survives filter-chain restarts (which hand
+        // BigSound.output a fresh node id) and suspend→resume.
+        inner.enforce_output_device();
 
         // (b) Auto-profile detection.
         let current = match current_default_sink_id() {
@@ -724,6 +955,11 @@ fn main() -> Result<()> {
         let cache = inner.cache.lock().unwrap_or_else(|e| e.into_inner());
         push_cache_to_pipewire(&inner.node_id, &cache);
     }
+
+    // Re-assert a persisted output-device pin on startup (no-op when the
+    // saved choice is automatic) so the routing matches the user's last
+    // choice as soon as the daemon comes up.
+    inner.enforce_output_device();
     eprintln!(
         "bigsound-daemon: loaded {} profile(s) from {}",
         inner

@@ -78,6 +78,31 @@ detects the active output (sink + port via PipeWire) and applies a
 matching profile automatically. No clicking, no fiddling. See the
 [Profiles](#profiles) section below for the full catalogue.
 
+## Output device
+
+By default the DSP output **follows WirePlumber's priority** — it plays
+through whatever real device would normally be your system default
+(speakers, headphones, HDMI, Bluetooth), and the matching profile
+auto-applies. That's the right behaviour almost always.
+
+Some USB gadgets break it. A USB microphone often exposes a playback
+endpoint of its own — a sidetone/monitor jack nobody listens to — and
+USB audio outranks internal speakers in priority. Plugging such a mic in
+can silently divert the DSP output to that dead endpoint and kill your
+sound. To stop that, **pin a device**: open the app and choose one under
+*Output device*, or from the terminal:
+
+```bash
+bigsound output list                 # real sinks BigSound can play through
+bigsound output set <node.name>      # pin to one (node.name from `list`)
+bigsound output auto                 # back to automatic (follow priority)
+```
+
+A pinned choice is persisted and re-asserted across reboots, suspend, and
+filter-chain restarts (which hand the output stream a fresh PipeWire id),
+so no freshly-plugged gadget can steal the routing. Leave it on
+*Automatic* to keep the auto-switch-by-device behaviour.
+
 ## Install
 
 ### Arch / Manjaro / BigCommunity (recommended)
@@ -117,6 +142,8 @@ bigsound profile list               # all profiles
 bigsound profile apply Audiophile   # switch profile manually
 bigsound set bigloud:amount 0.7     # tune one parameter live
 bigsound profile save MyMix         # save current state as a new profile
+bigsound output list                # devices BigSound can play through
+bigsound output set <node.name>     # pin output to one device (or: auto)
 ```
 
 ## Architecture
@@ -240,7 +267,11 @@ entries, name it `<locale>.po` and reinstall.
 **No audio at all after selecting BigSound (DSP)**
 &nbsp;&nbsp;Check `systemctl --user status filter-chain.service` — the
 service is disabled by default on PipeWire ≥ 1.0. Enable with
-`systemctl --user enable --now filter-chain.service`.
+`systemctl --user enable --now filter-chain.service`. If it only goes
+silent when a **USB microphone (or similar gadget) is plugged in**, that
+device's own playback endpoint is stealing the routing — pin your real
+speakers with `bigsound output set <node.name>` (see
+[Output device](#output-device)).
 
 **App says "bigsound-daemon doesn't seem to be running"**
 &nbsp;&nbsp;`systemctl --user start bigsound-daemon.service`. Check
