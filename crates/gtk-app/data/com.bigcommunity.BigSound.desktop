@@ -2,8 +2,8 @@
 Type=Application
 Name=BigSound
 GenericName=Audio Enhancer
-Comment=Live audio enhancement controls (BigBass + BigClarity + BigLoud)
-Comment[pt_BR]=Controles ao vivo de melhoria de áudio (BigBass + BigClarity + BigLoud)
+Comment=Live audio enhancement controls (BigBass + BigClarity + BigSpace + BigCross + BigLoud)
+Comment[pt_BR]=Controles ao vivo de melhoria de áudio (BigBass + BigClarity + BigSpace + BigCross + BigLoud)
 Exec=bigsound-app
 Icon=com.bigcommunity.BigSound
 Terminal=false

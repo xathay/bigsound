@@ -281,6 +281,7 @@ fn build_profile_dropdown(
     bus: &Bus,
     scales: Rc<RefCell<Vec<(gtk::Scale, SliderSpec)>>>,
     profile_group: adw::PreferencesGroup,
+    programmatic: Rc<std::cell::Cell<bool>>,
 ) -> gtk::DropDown {
     let canonical_names = bus.list_profiles();
     let display_names: Vec<String> = canonical_names.iter().map(|n| tr(n)).collect();
@@ -317,8 +318,7 @@ fn build_profile_dropdown(
 
     let bus = bus.clone();
     let canonical = canonical_names;
-    let programmatic = Rc::new(std::cell::Cell::new(false));
-    let programmatic_for_handler = programmatic.clone();
+    let programmatic_for_handler = programmatic;
     dd.connect_selected_notify(move |dd: &gtk::DropDown| {
         if programmatic_for_handler.get() {
             return;
@@ -343,10 +343,15 @@ fn build_profile_dropdown(
 
 /// Build one slider row. Reads the current value from the daemon so the
 /// UI matches reality on launch, and writes back on `value-changed`.
+/// `programmatic` suppresses the write-back while the app itself moves
+/// the slider (profile apply, reset) — those paths already push the
+/// values over D-Bus, so echoing each `set_value` would double the
+/// traffic with no effect.
 fn build_slider_row(
     spec: &SliderSpec,
     bus: &Bus,
     scales: &Rc<RefCell<Vec<(gtk::Scale, SliderSpec)>>>,
+    programmatic: &Rc<std::cell::Cell<bool>>,
 ) -> adw::ActionRow {
     let row = adw::ActionRow::builder()
         .title(&spec.title)
@@ -368,7 +373,11 @@ fn build_slider_row(
     {
         let bus = bus.clone();
         let param = spec.param.to_string();
+        let programmatic = programmatic.clone();
         scale.connect_value_changed(move |s| {
+            if programmatic.get() {
+                return;
+            }
             bus.set(&param, s.value());
         });
     }
@@ -424,6 +433,10 @@ fn build_output_device_row(bus: &Bus) -> adw::ComboRow {
 
 fn build_window(app: &adw::Application, bus: Bus) {
     let scales: Rc<RefCell<Vec<(gtk::Scale, SliderSpec)>>> = Rc::new(RefCell::new(Vec::new()));
+    // Shared "the app is moving the sliders itself" flag — see
+    // build_slider_row. One cell for the whole window so the dropdown
+    // handler and the reset button both suppress slider write-backs.
+    let programmatic = Rc::new(std::cell::Cell::new(false));
 
     let window = adw::ApplicationWindow::builder()
         .application(app)
@@ -443,9 +456,12 @@ fn build_window(app: &adw::Application, bus: Bus) {
     {
         let scales = scales.clone();
         let bus = bus.clone();
+        let programmatic = programmatic.clone();
         reset_btn.connect_clicked(move |_| {
             for (scale, spec) in scales.borrow().iter() {
+                programmatic.set(true);
                 scale.set_value(spec.default);
+                programmatic.set(false);
                 bus.set(spec.param, spec.default);
             }
         });
@@ -479,11 +495,11 @@ fn build_window(app: &adw::Application, bus: Bus) {
     // Profile dropdown on the right side of the header. The dropdown
     // owns the group so its selection-changed handler can refresh the
     // title + description in place.
-    let profile_dd = build_profile_dropdown(&bus, scales.clone(), group.clone());
+    let profile_dd = build_profile_dropdown(&bus, scales.clone(), group.clone(), programmatic.clone());
     header.pack_end(&profile_dd);
 
     for spec in slider_specs() {
-        group.add(&build_slider_row(&spec, &bus, &scales));
+        group.add(&build_slider_row(&spec, &bus, &scales, &programmatic));
     }
 
     page.add(&group);
