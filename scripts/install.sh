@@ -3,16 +3,21 @@
 # drops the PipeWire filter-chain config in place, restarts PipeWire,
 # and verifies that the "BigSound" sink shows up.
 #
-# Requires sudo ONCE to copy the LADSPA .so files into /usr/lib/ladspa.
-# PipeWire 1.6+ refuses to dlopen LADSPA plugins from $HOME (even with
-# absolute paths in the conf), so the plugins must live in the system
-# LADSPA dir; everything else stays user-local under $HOME.
+# No sudo needed on most systems: plugins go to ~/.local/lib/bigsound
+# and PipeWire dlopens them via the absolute paths in the conf (verified
+# on Arch / PipeWire 1.6.6). Some distro builds refuse to load LADSPA
+# from $HOME — if the sink doesn't come up from the user path, the
+# script falls back to /usr/lib/ladspa, which needs sudo once.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIGSOUND_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Honour CARGO_TARGET_DIR (useful when the checkout lives in a
+# cloud-synced folder — keeps gigabytes of build artifacts out of sync).
+TARGET_DIR="${CARGO_TARGET_DIR:-$BIGSOUND_DIR/target}"
 LADSPA_DIR="/usr/lib/ladspa"
+USER_LADSPA_DIR="$HOME/.local/lib/bigsound"
 PW_CONF_DIR="$HOME/.config/pipewire/filter-chain.conf.d"
 BIN_DIR="$HOME/.local/bin"
 SYSTEMD_DIR="$HOME/.config/systemd/user"
@@ -33,11 +38,11 @@ step(){ echo -e "${C_DIM}▸${C_RST} $*"; }
 step "compilando workspace em release..."
 cd "$BIGSOUND_DIR"
 cargo build --release --quiet
-BASS_BUILT="$BIGSOUND_DIR/target/release/libbig_bass.so"
-CLARITY_BUILT="$BIGSOUND_DIR/target/release/libbig_clarity.so"
-SPACE_BUILT="$BIGSOUND_DIR/target/release/libbig_space.so"
-CROSS_BUILT="$BIGSOUND_DIR/target/release/libbig_cross.so"
-LOUD_BUILT="$BIGSOUND_DIR/target/release/libbig_loud.so"
+BASS_BUILT="$TARGET_DIR/release/libbig_bass.so"
+CLARITY_BUILT="$TARGET_DIR/release/libbig_clarity.so"
+SPACE_BUILT="$TARGET_DIR/release/libbig_space.so"
+CROSS_BUILT="$TARGET_DIR/release/libbig_cross.so"
+LOUD_BUILT="$TARGET_DIR/release/libbig_loud.so"
 [[ -f "$BASS_BUILT" ]]    || { err "libbig_bass.so não foi gerada"; exit 1; }
 [[ -f "$CLARITY_BUILT" ]] || { err "libbig_clarity.so não foi gerada"; exit 1; }
 [[ -f "$SPACE_BUILT" ]]   || { err "libbig_space.so não foi gerada"; exit 1; }
@@ -45,53 +50,77 @@ LOUD_BUILT="$BIGSOUND_DIR/target/release/libbig_loud.so"
 [[ -f "$LOUD_BUILT" ]]    || { err "libbig_loud.so não foi gerada"; exit 1; }
 ok "build pronto (BigBass + BigClarity + BigSpace + BigCross + BigLoud)"
 
-# 2. Install plugins ------------------------------------------------------
-# PipeWire 1.6 refuses to dlopen LADSPA plugins from $HOME — even when
-# the conf carries an absolute path the loader returns ENOENT — so the
-# .so files MUST live under /usr/lib/ladspa. This is the only step that
-# requires sudo; the prompt happens once and unlocks all five copies.
-BASS_INSTALLED="$LADSPA_DIR/big_bass.so"
-CLARITY_INSTALLED="$LADSPA_DIR/big_clarity.so"
-SPACE_INSTALLED="$LADSPA_DIR/big_space.so"
-CROSS_INSTALLED="$LADSPA_DIR/big_cross.so"
-LOUD_INSTALLED="$LADSPA_DIR/big_loud.so"
-step "instalando plugins em $LADSPA_DIR/ (precisa sudo uma vez)..."
-sudo install -d -m 755 "$LADSPA_DIR"
-sudo install -m 755 "$BASS_BUILT"    "$BASS_INSTALLED"
-sudo install -m 755 "$CLARITY_BUILT" "$CLARITY_INSTALLED"
-sudo install -m 755 "$SPACE_BUILT"   "$SPACE_INSTALLED"
-sudo install -m 755 "$CROSS_BUILT"   "$CROSS_INSTALLED"
-sudo install -m 755 "$LOUD_BUILT"    "$LOUD_INSTALLED"
-ok "plugins instalados em $LADSPA_DIR/"
-
-# 3. Install filter-chain config (substituting plugin paths) --------------
-mkdir -p "$PW_CONF_DIR"
+# 2. Install plugins + filter-chain config --------------------------------
+# Try the no-sudo path first: plugins in ~/.local/lib/bigsound, conf with
+# absolute paths. Verified working on Arch / PipeWire 1.6.6. If the sink
+# doesn't come up (some distro builds refuse to dlopen LADSPA from $HOME),
+# fall back to /usr/lib/ladspa — the only step that ever needs sudo.
 TEMPLATE="$BIGSOUND_DIR/configs/pipewire/10-bigsound.conf.template"
 TARGET="$PW_CONF_DIR/10-bigsound.conf"
-sed -e "s|__BIG_BASS_SO_PATH__|$BASS_INSTALLED|g" \
-    -e "s|__BIG_CLARITY_SO_PATH__|$CLARITY_INSTALLED|g" \
-    -e "s|__BIG_SPACE_SO_PATH__|$SPACE_INSTALLED|g" \
-    -e "s|__BIG_CROSS_SO_PATH__|$CROSS_INSTALLED|g" \
-    -e "s|__BIG_LOUD_SO_PATH__|$LOUD_INSTALLED|g" \
-    "$TEMPLATE" > "$TARGET"
-ok "config instalada: $TARGET"
+mkdir -p "$PW_CONF_DIR"
 
-# 4. Enable filter-chain.service (loads configs from filter-chain.conf.d) -
-# This service runs a separate pipewire instance that hosts filter-chains
-# and is disabled by default on PipeWire ≥ 1.0. Without enabling it, the
-# config we just dropped is never read.
-step "habilitando filter-chain.service (carrega o config)..."
-systemctl --user enable --now filter-chain.service >/dev/null 2>&1
-systemctl --user restart filter-chain.service
-sleep 2
+# Writes $TARGET with the five plugin paths rooted at $1.
+write_conf() {
+    local dir="$1"
+    sed -e "s|__BIG_BASS_SO_PATH__|$dir/big_bass.so|g" \
+        -e "s|__BIG_CLARITY_SO_PATH__|$dir/big_clarity.so|g" \
+        -e "s|__BIG_SPACE_SO_PATH__|$dir/big_space.so|g" \
+        -e "s|__BIG_CROSS_SO_PATH__|$dir/big_cross.so|g" \
+        -e "s|__BIG_LOUD_SO_PATH__|$dir/big_loud.so|g" \
+        "$TEMPLATE" > "$TARGET"
+}
+
+restart_chain() {
+    systemctl --user enable filter-chain.service >/dev/null 2>&1 || true
+    systemctl --user restart filter-chain.service
+    sleep 2
+}
+
+sink_is_up() {
+    pactl list short sinks 2>/dev/null | grep -qE "^[0-9]+\s+BigSound\b"
+}
+
+step "instalando plugins em $USER_LADSPA_DIR/ (sem sudo)..."
+install -d -m 755 "$USER_LADSPA_DIR"
+install -m 755 "$BASS_BUILT"    "$USER_LADSPA_DIR/big_bass.so"
+install -m 755 "$CLARITY_BUILT" "$USER_LADSPA_DIR/big_clarity.so"
+install -m 755 "$SPACE_BUILT"   "$USER_LADSPA_DIR/big_space.so"
+install -m 755 "$CROSS_BUILT"   "$USER_LADSPA_DIR/big_cross.so"
+install -m 755 "$LOUD_BUILT"    "$USER_LADSPA_DIR/big_loud.so"
+write_conf "$USER_LADSPA_DIR"
+restart_chain
+
+if sink_is_up; then
+    LADSPA_INSTALL_DIR="$USER_LADSPA_DIR"
+    ok "plugins carregados de $USER_LADSPA_DIR/ (instalação 100% user-level)"
+else
+    err "PipeWire não carregou os plugins de \$HOME — caindo para $LADSPA_DIR (precisa sudo uma vez)"
+    sudo install -d -m 755 "$LADSPA_DIR"
+    sudo install -m 755 "$BASS_BUILT"    "$LADSPA_DIR/big_bass.so"
+    sudo install -m 755 "$CLARITY_BUILT" "$LADSPA_DIR/big_clarity.so"
+    sudo install -m 755 "$SPACE_BUILT"   "$LADSPA_DIR/big_space.so"
+    sudo install -m 755 "$CROSS_BUILT"   "$LADSPA_DIR/big_cross.so"
+    sudo install -m 755 "$LOUD_BUILT"    "$LADSPA_DIR/big_loud.so"
+    write_conf "$LADSPA_DIR"
+    restart_chain
+    LADSPA_INSTALL_DIR="$LADSPA_DIR"
+    ok "plugins instalados em $LADSPA_DIR/"
+fi
+ok "config instalada: $TARGET"
+# Kept for the uninstall hint at the end of the script.
+BASS_INSTALLED="$LADSPA_INSTALL_DIR/big_bass.so"
+CLARITY_INSTALLED="$LADSPA_INSTALL_DIR/big_clarity.so"
+SPACE_INSTALLED="$LADSPA_INSTALL_DIR/big_space.so"
+CROSS_INSTALLED="$LADSPA_INSTALL_DIR/big_cross.so"
+LOUD_INSTALLED="$LADSPA_INSTALL_DIR/big_loud.so"
 
 # 5. Install binaries (daemon, CLI, GTK app) ------------------------------
 # `install` does an atomic unlink+copy so a currently-running daemon
 # doesn't trigger ETXTBSY ("Text file busy") on subsequent runs.
 mkdir -p "$BIN_DIR"
-DAEMON_BUILT="$BIGSOUND_DIR/target/release/bigsound-daemon"
-CLI_BUILT="$BIGSOUND_DIR/target/release/bigsound"
-APP_BUILT="$BIGSOUND_DIR/target/release/bigsound-app"
+DAEMON_BUILT="$TARGET_DIR/release/bigsound-daemon"
+CLI_BUILT="$TARGET_DIR/release/bigsound"
+APP_BUILT="$TARGET_DIR/release/bigsound-app"
 [[ -f "$DAEMON_BUILT" ]] || { err "bigsound-daemon não foi gerado"; exit 1; }
 [[ -f "$CLI_BUILT" ]]    || { err "bigsound (CLI) não foi gerado";  exit 1; }
 [[ -f "$APP_BUILT" ]]    || { err "bigsound-app (GTK) não foi gerado"; exit 1; }
@@ -194,7 +223,10 @@ if pactl list short sinks 2>/dev/null | grep -qE "^[0-9]+\s+BigSound\b"; then
     echo
     echo -e "Pra desinstalar tudo:"
     echo -e "  ${C_DIM}systemctl --user disable --now bigsound-daemon.service filter-chain.service${C_RST}"
-    echo -e "  ${C_DIM}sudo rm \"$BASS_INSTALLED\" \"$CLARITY_INSTALLED\" \"$SPACE_INSTALLED\" \"$CROSS_INSTALLED\" \"$LOUD_INSTALLED\"${C_RST}"
+    # sudo only needed when the plugins ended up in the system dir.
+    RM_PREFIX=""
+    [[ "$LADSPA_INSTALL_DIR" == "$HOME"* ]] || RM_PREFIX="sudo "
+    echo -e "  ${C_DIM}${RM_PREFIX}rm \"$BASS_INSTALLED\" \"$CLARITY_INSTALLED\" \"$SPACE_INSTALLED\" \"$CROSS_INSTALLED\" \"$LOUD_INSTALLED\"${C_RST}"
     echo -e "  ${C_DIM}rm \"$TARGET\"${C_RST}"
     echo -e "  ${C_DIM}rm \"$BIN_DIR/bigsound\" \"$BIN_DIR/bigsound-daemon\" \"$BIN_DIR/bigsound-app\"${C_RST}"
     echo -e "  ${C_DIM}rm \"$SYSTEMD_DIR/bigsound-daemon.service\" \"$APPS_DIR/com.bigcommunity.BigSound.desktop\"${C_RST}"

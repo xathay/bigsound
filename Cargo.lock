@@ -212,7 +212,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "big-bass"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -221,7 +221,7 @@ dependencies = [
 
 [[package]]
 name = "big-bass-ladspa"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "big-bass",
  "ladspa-wrapper",
@@ -229,14 +229,14 @@ dependencies = [
 
 [[package]]
 name = "big-clarity"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "big-bass",
 ]
 
 [[package]]
 name = "big-clarity-ladspa"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "big-clarity",
  "ladspa-wrapper",
@@ -244,7 +244,7 @@ dependencies = [
 
 [[package]]
 name = "big-cross"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "big-bass",
  "big-space",
@@ -252,7 +252,7 @@ dependencies = [
 
 [[package]]
 name = "big-cross-ladspa"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "big-cross",
  "ladspa-wrapper",
@@ -260,11 +260,11 @@ dependencies = [
 
 [[package]]
 name = "big-loud"
-version = "0.7.0"
+version = "0.7.1"
 
 [[package]]
 name = "big-loud-ladspa"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "big-loud",
  "ladspa-wrapper",
@@ -272,14 +272,14 @@ dependencies = [
 
 [[package]]
 name = "big-space"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "big-bass",
 ]
 
 [[package]]
 name = "big-space-ladspa"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "big-space",
  "ladspa-wrapper",
@@ -287,7 +287,7 @@ dependencies = [
 
 [[package]]
 name = "bigsound-app"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "gettext-rs",
@@ -299,7 +299,7 @@ dependencies = [
 
 [[package]]
 name = "bigsound-cli"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -308,7 +308,7 @@ dependencies = [
 
 [[package]]
 name = "bigsound-daemon"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "regex",
@@ -989,7 +989,7 @@ dependencies = [
 
 [[package]]
 name = "ladspa-wrapper"
-version = "0.7.0"
+version = "0.7.1"
 
 [[package]]
 name = "lazy_static"

@@ -2,8 +2,8 @@
 # Contributor: BigCommunity Team
 
 pkgname=bigsound
-pkgver=0.7.0
-pkgrel=2
+pkgver=0.7.1
+pkgrel=1
 pkgdesc='System-wide audio enhancement for BigCommunity (BigBass + BigClarity + BigSpace + BigCross + BigLoud) with auto-profile per output device'
 arch=('x86_64')
 url='https://github.com/xathay/bigsound'
@@ -42,6 +42,10 @@ sha256sums=()
 # `_root` is the absolute path to the BigSound workspace root.
 _root="$(realpath "$startdir/..")"
 
+# Honour CARGO_TARGET_DIR when set (e.g. to keep build artifacts out of a
+# cloud-synced checkout); default to the in-tree target/ otherwise.
+_target="${CARGO_TARGET_DIR:-$_root/target}"
+
 prepare() {
     cd "$_root"
     # Reproducible builds need a committed lock file. Fail loudly if it
@@ -75,16 +79,16 @@ package() {
 
     # LADSPA plugins (system-wide so PipeWire's filter-chain module
     # finds them via the standard LADSPA_PATH).
-    install -Dm755 target/release/libbig_bass.so    "$pkgdir/usr/lib/ladspa/big_bass.so"
-    install -Dm755 target/release/libbig_clarity.so "$pkgdir/usr/lib/ladspa/big_clarity.so"
-    install -Dm755 target/release/libbig_space.so   "$pkgdir/usr/lib/ladspa/big_space.so"
-    install -Dm755 target/release/libbig_cross.so   "$pkgdir/usr/lib/ladspa/big_cross.so"
-    install -Dm755 target/release/libbig_loud.so    "$pkgdir/usr/lib/ladspa/big_loud.so"
+    install -Dm755 "$_target"/release/libbig_bass.so    "$pkgdir/usr/lib/ladspa/big_bass.so"
+    install -Dm755 "$_target"/release/libbig_clarity.so "$pkgdir/usr/lib/ladspa/big_clarity.so"
+    install -Dm755 "$_target"/release/libbig_space.so   "$pkgdir/usr/lib/ladspa/big_space.so"
+    install -Dm755 "$_target"/release/libbig_cross.so   "$pkgdir/usr/lib/ladspa/big_cross.so"
+    install -Dm755 "$_target"/release/libbig_loud.so    "$pkgdir/usr/lib/ladspa/big_loud.so"
 
     # Binaries.
-    install -Dm755 target/release/bigsound-daemon "$pkgdir/usr/bin/bigsound-daemon"
-    install -Dm755 target/release/bigsound        "$pkgdir/usr/bin/bigsound"
-    install -Dm755 target/release/bigsound-app    "$pkgdir/usr/bin/bigsound-app"
+    install -Dm755 "$_target"/release/bigsound-daemon "$pkgdir/usr/bin/bigsound-daemon"
+    install -Dm755 "$_target"/release/bigsound        "$pkgdir/usr/bin/bigsound"
+    install -Dm755 "$_target"/release/bigsound-app    "$pkgdir/usr/bin/bigsound-app"
 
     # PipeWire filter-chain config — system-wide install at
     # /usr/share/pipewire/filter-chain.conf.d/, paths point to
