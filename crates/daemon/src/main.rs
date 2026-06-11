@@ -302,14 +302,61 @@ fn active_port_for_sink(sink_name: &str) -> Option<String> {
     None
 }
 
+/// The real sink currently receiving `BigSound.output`'s audio, resolved
+/// from the live link graph via `pw-link -l` (~4 ms, no JSON). This is
+/// what profile matching must look at in the normal topology where the
+/// system default sink IS BigSound: plugging headphones or connecting a
+/// Bluetooth speaker doesn't change the default sink — it changes which
+/// device WirePlumber links our playback stream to.
+///
+/// Output format parsed:
+///   alsa_output.pci-....analog-stereo:playback_FL
+///     |<- BigSound.output:output_FL
+/// i.e. an unindented target port line, followed by indented source lines.
+fn real_sink_behind_output() -> Option<String> {
+    let out = Command::new("pw-link")
+        .args(["-l", "BigSound.output"])
+        .output()
+        .ok()?;
+    let txt = String::from_utf8_lossy(&out.stdout);
+    let mut current_target: Option<&str> = None;
+    for line in txt.lines() {
+        if !line.starts_with(' ') {
+            current_target = Some(line.trim());
+            continue;
+        }
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("|<- ") {
+            if rest.trim().starts_with("BigSound.output:") {
+                // Port is the suffix after the last ':'; node names don't
+                // contain ':' in practice.
+                if let Some(target) = current_target {
+                    let node = target.rsplit_once(':').map(|(n, _)| n).unwrap_or(target);
+                    if !node.is_empty() && node != "BigSound" {
+                        return Some(node.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Composite identifier we match profile regex against: `<sink>::<port>`
 /// when the sink reports a port, otherwise just `<sink>`. This lets a
 /// single laptop sink (e.g. `alsa_output.pci-...analog-stereo`) yield
 /// different match strings depending on which physical jack is active —
 /// the only way to detect headphone-vs-speaker on machines whose codec
 /// doesn't rename the sink on insertion.
+///
+/// When the system default sink is BigSound itself (the normal setup),
+/// the identifier is derived from the real device behind
+/// `BigSound.output` instead — see [`real_sink_behind_output`].
 fn current_default_sink_id() -> Option<String> {
-    let sink = current_default_sink_name()?;
+    let mut sink = current_default_sink_name()?;
+    if sink == "BigSound" {
+        sink = real_sink_behind_output()?;
+    }
     match active_port_for_sink(&sink) {
         Some(port) => Some(format!("{sink}::{port}")),
         None => Some(sink),
@@ -358,6 +405,23 @@ fn discover_node_id(node_name: &str) -> Result<u32> {
 
 fn discover_bigsound_node_id() -> Result<u32> {
     discover_node_id("BigSound")
+}
+
+/// Cheap liveness check: does PipeWire object `id` still exist and carry
+/// the expected `node.name`? Uses `pw-cli info <id>` (one object, a few
+/// hundred bytes) instead of `pw-dump` (the whole graph as JSON, easily
+/// hundreds of KB) so it's safe to call from the 3 s background tick.
+fn node_id_matches(id: u32, node_name: &str) -> bool {
+    if id == 0 {
+        return false;
+    }
+    let Ok(out) = Command::new("pw-cli").args(["info", &id.to_string()]).output() else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
+    }
+    String::from_utf8_lossy(&out.stdout).contains(&format!("node.name = \"{node_name}\""))
 }
 
 /// Enumerate the real output sinks the user could route BigSound through —
@@ -479,33 +543,29 @@ fn push_internal_value(node_id: u32, internal: &str, value: f64) -> Result<()> {
 /// the target (filter-chain.service restarts hand out new node ids and
 /// our cached one goes stale — without this retry, every Set/ApplyProfile
 /// silently no-ops until the daemon itself is restarted).
+///
+/// Any push error triggers one re-discovery attempt. We used to string-match
+/// pw-cli's error text ("no global", "not found", …) to decide whether the
+/// id looked stale, but the real world defeated that: after a filter-chain
+/// restart the old id can be *reused by a different object* (observed: a
+/// Port), and pw-cli then says "set-param not implemented on object N" —
+/// a wording the allowlist missed, so every push silently no-op'd. If the
+/// failure wasn't staleness (e.g. pw-cli itself missing), discovery fails
+/// too and we return the original error — one extra pw-dump, no thrash.
 fn push_with_refresh(node_id_atom: &AtomicU32, internal: &str, value: f64) -> Result<()> {
     let nid = node_id_atom.load(Ordering::Acquire);
     match push_internal_value(nid, internal, value) {
         Ok(()) => Ok(()),
-        Err(e) => {
-            let msg = e.to_string();
-            // pw-cli's "no global N" / "unknown" responses indicate the
-            // node went away. Anything else (e.g. ENOENT for pw-cli itself)
-            // we propagate without thrashing pw-dump.
-            let looks_stale = msg.contains("no global")
-                || msg.contains("unknown")
-                || msg.contains("No such")
-                || msg.contains("not found");
-            if !looks_stale {
-                return Err(e);
+        Err(e) => match discover_bigsound_node_id() {
+            Ok(fresh) if fresh != nid => {
+                eprintln!(
+                    "bigsound-daemon: BigSound node id changed {nid} → {fresh} (filter-chain restarted?); retrying push"
+                );
+                node_id_atom.store(fresh, Ordering::Release);
+                push_internal_value(fresh, internal, value)
             }
-            match discover_bigsound_node_id() {
-                Ok(fresh) if fresh != nid => {
-                    eprintln!(
-                        "bigsound-daemon: BigSound node id changed {nid} → {fresh} (filter-chain restarted?); retrying push"
-                    );
-                    node_id_atom.store(fresh, Ordering::Release);
-                    push_internal_value(fresh, internal, value)
-                }
-                _ => Err(e),
-            }
-        }
+            _ => Err(e),
+        },
     }
 }
 
@@ -564,12 +624,20 @@ impl ServiceInner {
     }
 
     /// Enforce the configured output target on `BigSound.output`. When a
-    /// device is pinned this re-resolves the (restart-volatile) node id and
-    /// re-asserts the `target.object` metadata, so the choice survives
+    /// device is pinned this resolves the (restart-volatile) node id and
+    /// asserts the `target.object` metadata, so the choice survives
     /// filter-chain restarts and suspend→resume. When set to automatic it's
     /// a cheap no-op — the pin is cleared at the moment the user switches to
     /// automatic, and a fresh `BigSound.output` starts unpinned anyway.
-    fn enforce_output_device(&self) {
+    ///
+    /// `force = false` (the background tick) first checks whether the cached
+    /// node id is still the live `BigSound.output`; if so the metadata pin
+    /// asserted on it is still in place and we return without spawning
+    /// pw-dump or rewriting metadata. This keeps the steady-state tick light
+    /// and also means a manual re-route via pavucontrol isn't fought every
+    /// 3 s — the daemon's pin re-wins only when the node is recreated.
+    /// `force = true` (user just picked a device) always re-asserts.
+    fn enforce_output_device(&self, force: bool) {
         let target = self
             .output_device
             .lock()
@@ -578,6 +646,12 @@ impl ServiceInner {
         let Some(sink) = target else {
             return;
         };
+        if !force {
+            let cached = self.output_node_id.load(Ordering::Acquire);
+            if node_id_matches(cached, "BigSound.output") {
+                return;
+            }
+        }
         let out_id = match discover_node_id("BigSound.output") {
             Ok(id) => id,
             Err(_) => return,
@@ -628,9 +702,13 @@ impl BigSoundService {
         }
         let internals = resolve_internal(name)
             .ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("unknown parameter '{name}'")))?;
-        if let Ok(mut cache) = self.inner.cache.lock() {
-            cache.insert(name.to_string(), value);
-        }
+        // Recover from a poisoned mutex like every other handler — skipping
+        // the cache write here would silently desync `Get` from PipeWire.
+        self.inner
+            .cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(name.to_string(), value);
         self.inner.bump_cache_gen();
         for internal in internals {
             let _ = push_with_refresh(&self.inner.node_id, internal, value);
@@ -804,10 +882,15 @@ impl BigSoundService {
         } else {
             // Light validation: a sink node.name is printable ASCII, never
             // our own virtual sink, and bounded so a hostile client can't
-            // smuggle control chars into the metadata pod.
+            // smuggle control chars into the metadata pod. `"` and `\` are
+            // also rejected — set_output_target wraps the name in a quoted
+            // JSON string for pw-metadata, and real node.names never
+            // contain either.
             let ok = trimmed.len() <= 256
                 && trimmed != "BigSound"
-                && trimmed.chars().all(|c| c.is_ascii_graphic());
+                && trimmed
+                    .chars()
+                    .all(|c| c.is_ascii_graphic() && c != '"' && c != '\\');
             if !ok {
                 return Err(zbus::fdo::Error::InvalidArgs(format!(
                     "invalid sink name '{name}'"
@@ -824,7 +907,7 @@ impl BigSoundService {
         save_output_device(&new_target);
 
         match &new_target {
-            Some(_) => self.inner.enforce_output_device(),
+            Some(_) => self.inner.enforce_output_device(true),
             None => {
                 // Switching to automatic: delete any pin on the current
                 // output node so WirePlumber resumes priority routing.
@@ -868,22 +951,50 @@ fn run_background(inner: Arc<ServiceInner>) {
     loop {
         thread::sleep(RE_PUSH_INTERVAL);
 
-        // (a) Re-push cache, but only if it changed since the last push.
-        let current_gen = inner.cache_gen.load(Ordering::Acquire);
-        if current_gen != last_pushed_gen {
-            if let Ok(cache) = inner.cache.lock() {
-                let snapshot = cache.clone();
-                drop(cache);
-                push_cache_to_pipewire(&inner.node_id, &snapshot);
-                last_pushed_gen = current_gen;
+        // (a0) Liveness check on the cached BigSound node id. A filter-chain
+        // restart spawns a fresh node with **template-default controls** and
+        // may recycle our old id for an unrelated object — set-param against
+        // it either errors in unpredictable wording or, worse, lands on the
+        // wrong node and "succeeds". One cheap `pw-cli info` per tick detects
+        // both; on mismatch we re-discover and force a full cache re-push so
+        // the chain snaps back to the user's tuning within one tick.
+        let mut force_repush = false;
+        let nid = inner.node_id.load(Ordering::Acquire);
+        if !node_id_matches(nid, "BigSound") {
+            match discover_bigsound_node_id() {
+                Ok(fresh) => {
+                    eprintln!(
+                        "bigsound-daemon: BigSound node id changed {nid} → {fresh} (filter-chain restarted?); re-pushing tuning"
+                    );
+                    inner.node_id.store(fresh, Ordering::Release);
+                    force_repush = true;
+                }
+                Err(e) => {
+                    eprintln!("bigsound-daemon: BigSound node unavailable: {e}");
+                    continue;
+                }
             }
         }
 
+        // (a) Re-push cache when it changed since the last push — or
+        // unconditionally right after a filter-chain restart (see a0).
+        let current_gen = inner.cache_gen.load(Ordering::Acquire);
+        if force_repush || current_gen != last_pushed_gen {
+            let snapshot = inner
+                .cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            push_cache_to_pipewire(&inner.node_id, &snapshot);
+            last_pushed_gen = current_gen;
+        }
+
         // (a2) Keep the chosen output device pinned. Cheap no-op when set
-        // to automatic; when a device is pinned it re-asserts target.object
-        // so the choice survives filter-chain restarts (which hand
-        // BigSound.output a fresh node id) and suspend→resume.
-        inner.enforce_output_device();
+        // to automatic; when a device is pinned, a light liveness check on
+        // the cached node id is all that runs in steady state — the full
+        // re-discover + re-pin only happens when filter-chain restarts hand
+        // BigSound.output a fresh node id (or after suspend→resume).
+        inner.enforce_output_device(false);
 
         // (b) Auto-profile detection.
         let current = match current_default_sink_id() {
@@ -894,8 +1005,10 @@ fn run_background(inner: Arc<ServiceInner>) {
             }
         };
 
-        // Don't auto-switch when the default sink IS BigSound itself —
-        // we react instead to which *real* device drives BigSound.output.
+        // current_default_sink_id already resolves "default = BigSound"
+        // to the real device behind BigSound.output; this guard only
+        // remains as a belt-and-braces against matching our own sink
+        // (e.g. a transient state while links are being rebuilt).
         if current.starts_with("BigSound::") || current == "BigSound" {
             continue;
         }
@@ -944,7 +1057,28 @@ fn run_background(inner: Arc<ServiceInner>) {
 }
 
 fn main() -> Result<()> {
-    let node_id = discover_bigsound_node_id().context("discovering BigSound sink")?;
+    // On login, systemd starts this unit alongside filter-chain.service —
+    // `After=` only orders the *exec*, not the moment PipeWire actually
+    // publishes the BigSound node. Retry for a while instead of exiting
+    // immediately, so a slow filter-chain start (cold boot, Bluetooth
+    // session bring-up) doesn't burn through systemd's restart limit.
+    const DISCOVER_ATTEMPTS: u32 = 30;
+    let mut attempt = 0;
+    let node_id = loop {
+        match discover_bigsound_node_id() {
+            Ok(id) => break id,
+            Err(e) => {
+                attempt += 1;
+                if attempt >= DISCOVER_ATTEMPTS {
+                    return Err(e.context("discovering BigSound sink"));
+                }
+                eprintln!(
+                    "bigsound-daemon: BigSound sink not up yet (attempt {attempt}/{DISCOVER_ATTEMPTS}), retrying in 1s"
+                );
+                thread::sleep(Duration::from_secs(1));
+            }
+        }
+    };
     eprintln!("bigsound-daemon: BigSound node id = {node_id}");
 
     let inner = Arc::new(ServiceInner::new(node_id));
@@ -958,8 +1092,9 @@ fn main() -> Result<()> {
 
     // Re-assert a persisted output-device pin on startup (no-op when the
     // saved choice is automatic) so the routing matches the user's last
-    // choice as soon as the daemon comes up.
-    inner.enforce_output_device();
+    // choice as soon as the daemon comes up. The cached output node id is
+    // still 0 here, so this always does the full discover-and-pin.
+    inner.enforce_output_device(false);
     eprintln!(
         "bigsound-daemon: loaded {} profile(s) from {}",
         inner
