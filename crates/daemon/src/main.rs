@@ -368,6 +368,10 @@ fn current_default_sink_id() -> Option<String> {
 /// fresh ids every time filter-chain.service restarts, so callers must be
 /// ready to re-resolve.
 fn discover_node_id(node_name: &str) -> Result<u32> {
+    Ok(discover_node_target(node_name)?.id)
+}
+
+fn pipewire_dump() -> Result<JsonValue> {
     let output = Command::new("pw-dump")
         .output()
         .context("running pw-dump (PipeWire installed?)")?;
@@ -377,34 +381,62 @@ fn discover_node_id(node_name: &str) -> Result<u32> {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    let json: JsonValue = serde_json::from_slice(&output.stdout).context("parsing pw-dump JSON")?;
-    let arr = json
+    serde_json::from_slice(&output.stdout).context("parsing pw-dump JSON")
+}
+
+fn discover_bigsound_node_id() -> Result<u32> {
+    discover_node_id("BigSound")
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct NodeTarget {
+    id: u32,
+    serial: u32,
+}
+
+/// Resolve the runtime id and stable object serial for a node. WirePlumber's
+/// move metadata is keyed by the stream's runtime id, while `target.object`
+/// must contain the target node's object serial.
+fn discover_node_target(node_name: &str) -> Result<NodeTarget> {
+    let json = pipewire_dump()?;
+    node_target_from_dump(&json, node_name)
+}
+
+fn node_target_from_dump(dump: &JsonValue, node_name: &str) -> Result<NodeTarget> {
+    let arr = dump
         .as_array()
         .context("pw-dump didn't return a JSON array")?;
     for obj in arr {
         if obj.get("type").and_then(JsonValue::as_str) != Some("PipeWire:Interface:Node") {
             continue;
         }
-        let name = obj
-            .pointer("/info/props/node.name")
+        let props = obj.pointer("/info/props");
+        if props
+            .and_then(|p| p.get("node.name"))
             .and_then(JsonValue::as_str)
-            .unwrap_or("");
-        if name == node_name {
-            return Ok(obj
-                .get("id")
-                .and_then(JsonValue::as_u64)
-                .with_context(|| format!("{node_name} node has no id"))?
-                as u32);
+            != Some(node_name)
+        {
+            continue;
         }
+        let id = obj
+            .get("id")
+            .and_then(JsonValue::as_u64)
+            .with_context(|| format!("{node_name} node has no id"))?;
+        let serial = props
+            .and_then(|p| p.get("object.serial"))
+            .and_then(JsonValue::as_u64)
+            .with_context(|| format!("{node_name} node has no object.serial"))?;
+        return Ok(NodeTarget {
+            id: u32::try_from(id)
+                .with_context(|| format!("{node_name} node id is out of range"))?,
+            serial: u32::try_from(serial)
+                .with_context(|| format!("{node_name} object.serial is out of range"))?,
+        });
     }
     bail!(
         "{node_name} node not found — make sure filter-chain.service is running \
          (systemctl --user status filter-chain.service)"
     )
-}
-
-fn discover_bigsound_node_id() -> Result<u32> {
-    discover_node_id("BigSound")
 }
 
 /// Cheap liveness check: does PipeWire object `id` still exist and carry
@@ -415,7 +447,10 @@ fn node_id_matches(id: u32, node_name: &str) -> bool {
     if id == 0 {
         return false;
     }
-    let Ok(out) = Command::new("pw-cli").args(["info", &id.to_string()]).output() else {
+    let Ok(out) = Command::new("pw-cli")
+        .args(["info", &id.to_string()])
+        .output()
+    else {
         return false;
     };
     if !out.status.success() {
@@ -475,23 +510,60 @@ fn list_real_output_sinks() -> Vec<(String, String)> {
 
 /// Pin (or clear) the real sink that `BigSound.output` feeds, by writing
 /// `target.object` into PipeWire's `default` metadata — the same lever
-/// `wpctl` / `pavucontrol` use to move a stream. `Some(sink)` forces the
+/// `wpctl` / `pavucontrol` use to move a stream. `Some(serial)` forces the
 /// DSP output to that sink regardless of session priority, so a freshly
 /// plugged high-priority USB gadget (e.g. a microphone that also exposes a
 /// playback endpoint) can't steal the routing. `None` deletes the pin and
 /// lets WirePlumber auto-route by priority again.
-fn set_output_target(out_id: u32, target: Option<&str>) -> Result<()> {
+fn set_output_target(out_id: u32, target_serial: Option<u32>) -> Result<()> {
+    for update in output_target_metadata(target_serial) {
+        set_metadata(
+            out_id,
+            update.key,
+            update.value.as_deref(),
+            update.value_type,
+        )?;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct MetadataUpdate {
+    key: &'static str,
+    value: Option<String>,
+    value_type: &'static str,
+}
+
+fn output_target_metadata(target_serial: Option<u32>) -> [MetadataUpdate; 2] {
+    [
+        MetadataUpdate {
+            key: "target.object",
+            value: target_serial.map(|serial| serial.to_string()),
+            value_type: "Spa:Id",
+        },
+        // target.object takes precedence, but an older target.node may still
+        // point elsewhere after a previous move. Removing it also ensures
+        // Automatic has no legacy pin left behind.
+        MetadataUpdate {
+            key: "target.node",
+            value: None,
+            value_type: "Spa:Id",
+        },
+    ]
+}
+
+fn set_metadata(out_id: u32, key: &str, value: Option<&str>, value_type: &str) -> Result<()> {
     let mut cmd = Command::new("pw-metadata");
     cmd.args(["-n", "default"]);
-    match target {
-        Some(sink) => {
+    match value {
+        Some(value) => {
             cmd.arg(out_id.to_string())
-                .arg("target.object")
-                .arg(format!("\"{sink}\""))
-                .arg("Spa:String:JSON");
+                .arg(key)
+                .arg(value)
+                .arg(value_type);
         }
         None => {
-            cmd.arg("-d").arg(out_id.to_string()).arg("target.object");
+            cmd.arg("-d").arg(out_id.to_string()).arg(key);
         }
     }
     let output = cmd.output().context("running pw-metadata")?;
@@ -637,29 +709,29 @@ impl ServiceInner {
     /// and also means a manual re-route via pavucontrol isn't fought every
     /// 3 s — the daemon's pin re-wins only when the node is recreated.
     /// `force = true` (user just picked a device) always re-asserts.
-    fn enforce_output_device(&self, force: bool) {
+    fn enforce_output_device(&self, force: bool) -> Result<()> {
         let target = self
             .output_device
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         let Some(sink) = target else {
-            return;
+            return Ok(());
         };
         if !force {
             let cached = self.output_node_id.load(Ordering::Acquire);
             if node_id_matches(cached, "BigSound.output") {
-                return;
+                return Ok(());
             }
         }
-        let out_id = match discover_node_id("BigSound.output") {
-            Ok(id) => id,
-            Err(_) => return,
-        };
+        let dump = pipewire_dump()?;
+        let out_id = node_target_from_dump(&dump, "BigSound.output")?.id;
+        let target = node_target_from_dump(&dump, &sink)
+            .with_context(|| format!("resolving output device '{sink}'"))?;
+        set_output_target(out_id, Some(target.serial))
+            .with_context(|| format!("pinning output to '{sink}'"))?;
         self.output_node_id.store(out_id, Ordering::Release);
-        if let Err(e) = set_output_target(out_id, Some(&sink)) {
-            eprintln!("bigsound-daemon: pinning output to '{sink}' failed: {e}");
-        }
+        Ok(())
     }
 
     /// Bump the cache generation counter — call this anywhere we mutate
@@ -899,24 +971,40 @@ impl BigSoundService {
             Some(trimmed.to_string())
         };
 
-        *self
-            .inner
-            .output_device
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = new_target.clone();
-        save_output_device(&new_target);
+        let previous_target = {
+            let mut output_device = self
+                .inner
+                .output_device
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let previous = output_device.clone();
+            *output_device = new_target.clone();
+            previous
+        };
 
-        match &new_target {
+        let apply_result = match &new_target {
             Some(_) => self.inner.enforce_output_device(true),
             None => {
                 // Switching to automatic: delete any pin on the current
                 // output node so WirePlumber resumes priority routing.
-                if let Ok(out_id) = discover_node_id("BigSound.output") {
+                discover_node_id("BigSound.output").and_then(|out_id| {
+                    set_output_target(out_id, None)?;
                     self.inner.output_node_id.store(out_id, Ordering::Release);
-                    let _ = set_output_target(out_id, None);
-                }
+                    Ok(())
+                })
             }
+        };
+
+        if let Err(error) = apply_result {
+            *self
+                .inner
+                .output_device
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = previous_target;
+            return Err(zbus::fdo::Error::Failed(error.to_string()));
         }
+
+        save_output_device(&new_target);
         Ok(())
     }
 
@@ -994,7 +1082,9 @@ fn run_background(inner: Arc<ServiceInner>) {
         // the cached node id is all that runs in steady state — the full
         // re-discover + re-pin only happens when filter-chain restarts hand
         // BigSound.output a fresh node id (or after suspend→resume).
-        inner.enforce_output_device(false);
+        if let Err(e) = inner.enforce_output_device(false) {
+            eprintln!("bigsound-daemon: enforcing output device failed: {e}");
+        }
 
         // (b) Auto-profile detection.
         let current = match current_default_sink_id() {
@@ -1094,7 +1184,9 @@ fn main() -> Result<()> {
     // saved choice is automatic) so the routing matches the user's last
     // choice as soon as the daemon comes up. The cached output node id is
     // still 0 here, so this always does the full discover-and-pin.
-    inner.enforce_output_device(false);
+    if let Err(e) = inner.enforce_output_device(false) {
+        eprintln!("bigsound-daemon: restoring output device failed: {e}");
+    }
     eprintln!(
         "bigsound-daemon: loaded {} profile(s) from {}",
         inner
@@ -1126,5 +1218,107 @@ fn main() -> Result<()> {
 
     loop {
         thread::park();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn resolves_node_id_and_serial_from_pipewire_dump() {
+        let dump = json!([
+            {
+                "id": 7,
+                "type": "PipeWire:Interface:Port",
+                "info": { "props": { "node.name": "speaker-a", "object.serial": 90 } }
+            },
+            {
+                "id": 42,
+                "type": "PipeWire:Interface:Node",
+                "info": { "props": { "node.name": "speaker-a", "object.serial": 901 } }
+            }
+        ]);
+
+        let target = node_target_from_dump(&dump, "speaker-a").unwrap();
+
+        assert_eq!(
+            target,
+            NodeTarget {
+                id: 42,
+                serial: 901
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_node_without_object_serial() {
+        let dump = json!([{
+            "id": 42,
+            "type": "PipeWire:Interface:Node",
+            "info": { "props": { "node.name": "speaker-a" } }
+        }]);
+
+        let error = node_target_from_dump(&dump, "speaker-a").unwrap_err();
+
+        assert!(error.to_string().contains("object.serial"));
+    }
+
+    #[test]
+    fn rejects_object_serial_outside_spa_id_range() {
+        let dump = json!([{
+            "id": 42,
+            "type": "PipeWire:Interface:Node",
+            "info": {
+                "props": {
+                    "node.name": "speaker-a",
+                    "object.serial": u64::from(u32::MAX) + 1
+                }
+            }
+        }]);
+
+        let error = node_target_from_dump(&dump, "speaker-a").unwrap_err();
+
+        assert!(error.to_string().contains("object.serial is out of range"));
+    }
+
+    #[test]
+    fn rejects_missing_node() {
+        let dump = json!([]);
+
+        let error = node_target_from_dump(&dump, "speaker-a").unwrap_err();
+
+        assert!(error.to_string().contains("speaker-a node not found"));
+    }
+
+    #[test]
+    fn pins_output_with_object_serial_as_spa_id() {
+        let updates = output_target_metadata(Some(901));
+
+        assert_eq!(
+            updates,
+            [
+                MetadataUpdate {
+                    key: "target.object",
+                    value: Some("901".to_string()),
+                    value_type: "Spa:Id"
+                },
+                MetadataUpdate {
+                    key: "target.node",
+                    value: None,
+                    value_type: "Spa:Id"
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn automatic_output_clears_current_and_legacy_targets() {
+        let updates = output_target_metadata(None);
+
+        assert!(updates.iter().all(|update| update.value.is_none()));
+        assert_eq!(updates[0].key, "target.object");
+        assert_eq!(updates[1].key, "target.node");
     }
 }
