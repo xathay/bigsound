@@ -15,7 +15,8 @@ em SVG e não incorpora pixels de wallpapers ou imagens externas.
   viewBox 128×128, formas sólidas e profundidade inferior discreta.
 - `crates/gtk-app/data/icons/com.bigcommunity.BigSound-symbolic.svg`: versão
   monocromática 16×16, com silhueta e faders simplificados.
-- `assets/icon.png`: exportação transparente 512×512 para o README.
+- `assets/bigsound-mixer.png`: exportação transparente 512×512 para o README.
+  `assets/icon.png` mantém a mesma arte para compatibilidade com o caminho anterior.
 
 Os SVGs são autocontidos: sem bitmap incorporado, scripts, filtros ou recursos
 externos. As capturas reais mostram o ícone na interface GTK4/libadwaita.

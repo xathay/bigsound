@@ -72,7 +72,7 @@ allow stale Cargo fingerprints to reuse an earlier application binary.
 The recipe remaps build/home paths so panic locations do not expose the
 builder's machine identity even after stripping. Actions have read-only permissions, fixed
 revisions and time limits. Review the diff, screenshots, SVG/PNG metadata
-and author identity before committing or uploading. The publication checker
+and author identity before committing or uploading. The publication checker also checks author/committer identities in history and
 prints finding categories and locations, never the matched secret. It
 checks the working tree and, with `--history`, all locally reachable blobs
 and commit messages. It does not rewrite Git history or examine unrelated
@@ -108,7 +108,8 @@ Build the workspace first, then run:
 
 ```bash
 cargo build --release --workspace --locked
-python3 scripts/test-gui.py --target target/release
+python3 scripts/test-gui.py --target target/release --theme light
+python3 scripts/test-gui.py --target target/release --theme dark
 ```
 
 Requires Xvfb, xauth, xdotool, ImageMagick (`magick`), gettext, a Brazilian
@@ -119,7 +120,7 @@ output directory (default `validation-output/gui`, ignored by Git).
 The harness starts its own authenticated X11 server without TCP, private
 D-Bus and PipeWire instances, test profiles and XDG directories. It does not
 attach to the user's display, audio server or physical devices. It captures
-three actual GTK views at native 2× scale, strips PNG metadata and checks
+three actual GTK views per theme at native 2× scale, strips PNG metadata and checks
 window/daemon survival, distinct views, profile synchronization and absence
 of GTK critical errors. All child processes are stopped on exit.
 

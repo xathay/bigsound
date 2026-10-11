@@ -45,7 +45,7 @@ A varredura de sigilo complementa a conferência humana do pacote final.
   [gettext-rs](https://rustsec.org/advisories/RUSTSEC-2026-0244.html)). Auditoria final: zero
   vulnerabilidades e zero alertas, sem exclusões de advisories.
 - Ícone aprovado de mesa de áudio, colorido e simbólico em SVG autocontido;
-  exportação PNG 512 px sem metadados pessoais. Capturas reais em português,
+  exportação PNG 512 px sem metadados pessoais. Capturas reais em português, temas claro/escuro e
   escala nativa 2×, feitas com GTK/X11, D-Bus e PipeWire privados. Documentação
   da direção em [ICON-DESIGN.md](ICON-DESIGN.md).
 - Corrigidas afirmações sobre true peak, aliasing, Atmos, codecs e filtros;
@@ -79,7 +79,7 @@ A varredura de sigilo complementa a conferência humana do pacote final.
 | RustSec | base atualizada: 1.296 advisories, 205 dependências; zero vulnerabilidades/alertas |
 | Sigilo do histórico base | 33 commits e 163 blobs alcançáveis examinados, sem achados pelos padrões do scanner |
 | Coautoria por IA | zero trailers no histórico local e remoto consultado; nenhum trailer adicionado |
-| Imagens | três capturas novas do aplicativo e ícone; sessão isolada, PNGs sem EXIF ou campos textuais |
+| Imagens | três telas em dois temas e ícone; sessão isolada, PNGs sem EXIF ou campos textuais |
 
 Antes desta atualização, a execução remota consultada falhou em `cargo fmt --check`:
 [execução 27341682046](https://github.com/xathay/bigsound/actions/runs/27341682046).
