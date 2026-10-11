@@ -109,7 +109,12 @@ pub unsafe fn read_control(ptr: *const f32, default: f32) -> f32 {
     if ptr.is_null() {
         default
     } else {
-        unsafe { *ptr }
+        let value = unsafe { *ptr };
+        if value.is_finite() {
+            value
+        } else {
+            default
+        }
     }
 }
 

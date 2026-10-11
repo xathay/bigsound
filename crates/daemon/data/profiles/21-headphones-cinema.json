@@ -1,6 +1,6 @@
 {
   "name": "Headphones - Cinema",
-  "description": "Maximalist stereo cinema preset for headphones — pushes Bauer crossfeed and bass-aware widening to the edge so films and orchestral mixes feel like a virtual room rather than two speakers strapped to your skull. Auto-match disabled: pick this manually when you want the cinematic mode. (Full HRTF/binaural 7.1 convolution will arrive in a later release.)",
+  "description": "Manual stereo cinema preset for headphones, combining Bauer crossfeed and bass-aware widening. No surround decoding, HRTF convolution or head tracking.",
   "match_patterns": [],
   "params": {
     "bigbass:target_freq":   55.0,

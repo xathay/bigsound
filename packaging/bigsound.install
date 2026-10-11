@@ -14,7 +14,7 @@ post_install() {
 
     Depois abra Configurações → Som → Saída e selecione "BigSound (DSP)".
     Tudo que tocar no sistema (YouTube, Spotify, MPV, Discord) vai passar
-    pela cadeia BigBass → BigClarity → BigSpace → BigLoud automaticamente.
+    pela cadeia BigBass → BigClarity → BigSpace → BigCross → BigLoud automaticamente.
 
     Pluga e despluga fones — o BigSound auto-detecta e aplica o profile
     correto sem cliques (laptop / fones / Bluetooth / HDMI).

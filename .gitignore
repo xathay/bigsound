@@ -20,3 +20,12 @@ packaging/*.log
 # OS metadata.
 .DS_Store
 Thumbs.db
+
+# Local review evidence and generated concept (the shipped icon is SVG).
+/validation-output/
+/assets/icon-concept.png
+
+__pycache__/
+
+# Reviewed source/package bundles (generated, not source files).
+/release-review/

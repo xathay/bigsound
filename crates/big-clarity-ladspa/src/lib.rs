@@ -105,6 +105,9 @@ struct Instance {
 }
 
 unsafe extern "C" fn instantiate(_d: *const Descriptor, sample_rate: c_ulong) -> *mut c_void {
+    if !(8000..=768000).contains(&sample_rate) {
+        return std::ptr::null_mut();
+    }
     let sr = sample_rate as f32;
     let params = ClarityParams::default();
     let inst = Box::new(Instance {

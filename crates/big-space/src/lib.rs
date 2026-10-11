@@ -25,12 +25,13 @@
 //! would produce on its own. This is intrinsic to all linear M/S
 //! wideners; pro-audio plugins handle it by capping the slider.
 //!
-//! BigSound caps the GTK slider for `bigspace:width` at 1.5 for that
-//! reason. Profiles that previously shipped wider values (Atmos/Cinema,
-//! Gaming) were tuned down. The DSP itself accepts the full range —
-//! the cap is policy at the UI layer.
+//! Built-in wide profiles stay at or below 1.5. The GTK frontend and
+//! DSP expose the full 0–2 range with a warning about values above 1.5;
+//! users should compare hard-panned material before increasing width.
 
 use big_bass::biquad::{Biquad, BiquadCoeffs};
+
+use big_bass::biquad::finite_clamp;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpaceParams {
@@ -44,6 +45,15 @@ pub struct SpaceParams {
     pub mix: f32,
     /// Pass-through.
     pub bypass: bool,
+}
+
+impl SpaceParams {
+    fn sanitised(mut self) -> Self {
+        self.width = finite_clamp(self.width, 1.3, 0.0, 2.0);
+        self.bass_keep_hz = finite_clamp(self.bass_keep_hz, 200.0, 40.0, 400.0);
+        self.mix = finite_clamp(self.mix, 1.0, 0.0, 1.0);
+        self
+    }
 }
 
 impl Default for SpaceParams {
@@ -60,7 +70,7 @@ impl Default for SpaceParams {
 /// Stereo Mid/Side widener with optional bass-keep-mono safety.
 #[derive(Debug)]
 pub struct SpaceProcessor {
-    /// 4th-order Butterworth high-pass on the Side path. Cascade of two
+    /// 4th-order high-pass (two Q=0.707 biquads) on the Side path. Cascade of two
     /// biquads at the same cutoff so the bass below `bass_keep_hz` is
     /// only present in the Mid component.
     side_hp: [Biquad; 2],
@@ -70,6 +80,11 @@ pub struct SpaceProcessor {
 
 impl SpaceProcessor {
     pub fn new(sample_rate: f32, params: SpaceParams) -> Self {
+        assert!(
+            sample_rate.is_finite() && (8000.0..=768000.0).contains(&sample_rate),
+            "unsupported sample rate"
+        );
+        let params = params.sanitised();
         let mut s = Self {
             side_hp: [Biquad::default(); 2],
             sample_rate,
@@ -87,6 +102,7 @@ impl SpaceProcessor {
     }
 
     pub fn set_params(&mut self, p: SpaceParams) {
+        let p = p.sanitised();
         self.params = p;
         self.update_coeffs();
     }
@@ -99,6 +115,16 @@ impl SpaceProcessor {
 
     #[inline]
     pub fn process_stereo(&mut self, l: f32, r: f32) -> (f32, f32) {
+        let l = if l.is_finite() {
+            l.clamp(-16.0, 16.0)
+        } else {
+            0.0
+        };
+        let r = if r.is_finite() {
+            r.clamp(-16.0, 16.0)
+        } else {
+            0.0
+        };
         if self.params.bypass {
             return (l, r);
         }
@@ -258,5 +284,18 @@ mod tests {
             tail = tail.max(ol.abs()).max(or.abs());
         }
         assert!(tail < 1.0e-5);
+    }
+    #[test]
+    fn nonfinite_audio_does_not_poison_state() {
+        let mut p = SpaceProcessor::new(SR, SpaceParams::default());
+        for x in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.3, 0.0] {
+            let (l, r) = p.process_stereo(x, 0.2);
+            assert!(l.is_finite() && r.is_finite());
+        }
+        for _ in 0..4096 {
+            let x = 0.1;
+            let (l, r) = p.process_stereo(x, 0.2);
+            assert!(l.is_finite() && r.is_finite());
+        }
     }
 }

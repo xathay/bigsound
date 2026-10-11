@@ -1,6 +1,6 @@
 {
   "name": "Bluetooth",
-  "description": "Codec-aware tuning for BT speakers and headphones: extra treble exciter to claw back the SBC/AAC rolloff above ~12 kHz, modest crossfeed for headphone use, and a slightly higher target_freq on the bass enhancer because BT codecs aggressively trim sub-60 Hz content.",
+  "description": "Bass and treble enhancement with moderate crossfeed for Bluetooth outputs. Processing changes the received stereo signal; it does not restore information discarded by a codec.",
   "match_patterns": [
     "bluez_output\\..*",
     "bluez_sink\\..*"

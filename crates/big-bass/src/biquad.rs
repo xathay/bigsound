@@ -14,6 +14,15 @@ pub struct BiquadCoeffs {
     pub a2: f32,
 }
 
+/// Clamp controls before coefficient calculation; NaN/Inf use a safe default.
+pub fn finite_clamp(value: f32, default: f32, min: f32, max: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(min, max)
+    } else {
+        default.clamp(min, max)
+    }
+}
+
 impl BiquadCoeffs {
     pub const PASSTHROUGH: Self = Self {
         b0: 1.0,
@@ -24,6 +33,12 @@ impl BiquadCoeffs {
     };
 
     pub fn bandpass(sample_rate: f32, freq: f32, q: f32) -> Self {
+        if !sample_rate.is_finite() || sample_rate < 2.0 {
+            return Self::PASSTHROUGH;
+        }
+        // RBJ coefficients require a positive cutoff strictly below Nyquist.
+        let freq = finite_clamp(freq, 100.0, 1.0, sample_rate * 0.49);
+        let q = finite_clamp(q, 0.707, 0.1, 100.0);
         let omega = 2.0 * PI * freq / sample_rate;
         let (sin_o, cos_o) = omega.sin_cos();
         let alpha = sin_o / (2.0 * q);
@@ -45,6 +60,12 @@ impl BiquadCoeffs {
     }
 
     pub fn highpass(sample_rate: f32, freq: f32, q: f32) -> Self {
+        if !sample_rate.is_finite() || sample_rate < 2.0 {
+            return Self::PASSTHROUGH;
+        }
+        // RBJ coefficients require a positive cutoff strictly below Nyquist.
+        let freq = finite_clamp(freq, 100.0, 1.0, sample_rate * 0.49);
+        let q = finite_clamp(q, 0.707, 0.1, 100.0);
         let omega = 2.0 * PI * freq / sample_rate;
         let (sin_o, cos_o) = omega.sin_cos();
         let alpha = sin_o / (2.0 * q);
@@ -66,6 +87,12 @@ impl BiquadCoeffs {
     }
 
     pub fn lowpass(sample_rate: f32, freq: f32, q: f32) -> Self {
+        if !sample_rate.is_finite() || sample_rate < 2.0 {
+            return Self::PASSTHROUGH;
+        }
+        // RBJ coefficients require a positive cutoff strictly below Nyquist.
+        let freq = finite_clamp(freq, 100.0, 1.0, sample_rate * 0.49);
+        let q = finite_clamp(q, 0.707, 0.1, 100.0);
         let omega = 2.0 * PI * freq / sample_rate;
         let (sin_o, cos_o) = omega.sin_cos();
         let alpha = sin_o / (2.0 * q);

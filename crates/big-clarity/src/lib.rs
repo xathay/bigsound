@@ -26,6 +26,8 @@ const DRIVE_MAX: f32 = 10.0;
 const ANTI_ALIAS_MAX_HZ: f32 = 16000.0;
 const ANTI_ALIAS_NYQUIST_MARGIN_HZ: f32 = 200.0;
 
+use big_bass::biquad::finite_clamp;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ClarityParams {
     /// Lower edge of the band that gets excited (Hz). Above this, the
@@ -41,6 +43,15 @@ pub struct ClarityParams {
     pub bypass: bool,
 }
 
+impl ClarityParams {
+    fn sanitised(mut self) -> Self {
+        self.target_freq = finite_clamp(self.target_freq, 3500.0, 1500.0, 8000.0);
+        self.drive = finite_clamp(self.drive, 0.4, 0.0, 1.0);
+        self.mix = finite_clamp(self.mix, 0.3, 0.0, 1.0);
+        self
+    }
+}
+
 impl Default for ClarityParams {
     fn default() -> Self {
         Self {
@@ -54,11 +65,11 @@ impl Default for ClarityParams {
 
 #[derive(Debug)]
 pub struct ClarityChannel {
-    /// Cascade of two HP biquads = 4th-order Butterworth.
+    /// Cascade of two Q=0.707 HP biquads, a 4th-order response.
     /// Isolates the high-mid band that will be saturated.
     sidechain_hp: [Biquad; 2],
-    /// Anti-alias LP at ~16 kHz to clip harmonics that would otherwise
-    /// fold around Nyquist into the audible range.
+    /// Output LP capped at 16 kHz and below Nyquist to reduce HF energy.
+    /// Post-filtering cannot undo aliasing introduced by the nonlinearity.
     output_lp: [Biquad; 2],
 }
 
@@ -94,6 +105,11 @@ impl ClarityChannel {
 
     #[inline]
     pub fn process(&mut self, input: f32, params: &ClarityParams) -> f32 {
+        let input = if input.is_finite() {
+            input.clamp(-16.0, 16.0)
+        } else {
+            0.0
+        };
         if params.bypass {
             return input;
         }
@@ -114,7 +130,7 @@ impl ClarityChannel {
         let drive = DRIVE_MIN + params.drive * (DRIVE_MAX - DRIVE_MIN);
         let saturated = (drive * hf).tanh() / drive;
 
-        // Bandlimit to remove inaudible/aliased content.
+        // Reduce HF energy; this does not undo aliasing already generated.
         let mut harmonics = saturated;
         for f in &mut self.output_lp {
             harmonics = f.process(harmonics);
@@ -139,6 +155,11 @@ pub struct ClarityProcessor {
 
 impl ClarityProcessor {
     pub fn new(num_channels: usize, sample_rate: f32, params: ClarityParams) -> Self {
+        assert!(
+            sample_rate.is_finite() && (8000.0..=768000.0).contains(&sample_rate),
+            "unsupported sample rate"
+        );
+        let params = params.sanitised();
         let mut s = Self {
             channels: (0..num_channels).map(|_| ClarityChannel::new()).collect(),
             sample_rate,
@@ -151,6 +172,7 @@ impl ClarityProcessor {
     }
 
     pub fn set_params(&mut self, params: ClarityParams) {
+        let params = params.sanitised();
         self.params = params;
         for ch in &mut self.channels {
             ch.update_coeffs(self.sample_rate, &self.params);
@@ -289,5 +311,20 @@ mod tests {
             .map(|(a, b)| (a - b).abs())
             .sum();
         assert!(diff > 1.0);
+    }
+    #[test]
+    fn nonfinite_audio_does_not_poison_state() {
+        let mut p = ClarityProcessor::new(1, SR, ClarityParams::default());
+        for x in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.3, 0.0] {
+            let mut frame = [x];
+            p.process_frame(&mut frame);
+            assert!(frame[0].is_finite());
+        }
+        for _ in 0..4096 {
+            let x = 0.1;
+            let mut frame = [x];
+            p.process_frame(&mut frame);
+            assert!(frame[0].is_finite());
+        }
     }
 }

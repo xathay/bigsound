@@ -178,12 +178,14 @@ impl StereoPeakLimiter {
 
     #[inline]
     fn process_stereo(&mut self, l: f32, r: f32) -> (f32, f32) {
-        let peak = (l * self.gain).abs().max((r * self.gain).abs());
-        if peak > self.threshold {
-            self.gain *= self.threshold / peak;
+        let peak = l.abs().max(r.abs());
+        let recovered = 1.0 + self.release_coef * (self.gain - 1.0);
+        let allowed = if peak > self.threshold {
+            self.threshold / peak
         } else {
-            self.gain = 1.0 + self.release_coef * (self.gain - 1.0);
-        }
+            1.0
+        };
+        self.gain = recovered.min(allowed);
         (l * self.gain, r * self.gain)
     }
 
@@ -201,6 +203,10 @@ pub struct LoudnessProcessor {
 
 impl LoudnessProcessor {
     pub fn new(sample_rate: f32, params: LoudnessParams) -> Self {
+        assert!(
+            sample_rate.is_finite() && (8000.0..=768000.0).contains(&sample_rate),
+            "unsupported sample rate"
+        );
         let mut s = Self {
             compressor: Compressor::new(sample_rate, COMPRESSOR_ATTACK_MS, COMPRESSOR_RELEASE_MS),
             limiter: StereoPeakLimiter::new(sample_rate, params.ceiling_db, LIMITER_RELEASE_MS),
@@ -211,6 +217,19 @@ impl LoudnessProcessor {
     }
 
     fn apply_params(&mut self) {
+        let defaults = LoudnessParams::default();
+        if !self.params.amount.is_finite() {
+            self.params.amount = defaults.amount;
+        }
+        if !self.params.mix.is_finite() {
+            self.params.mix = defaults.mix;
+        }
+        if !self.params.ceiling_db.is_finite() {
+            self.params.ceiling_db = defaults.ceiling_db;
+        }
+        self.params.amount = self.params.amount.clamp(0.0, 1.0);
+        self.params.mix = self.params.mix.clamp(0.0, 1.0);
+        self.params.ceiling_db = self.params.ceiling_db.clamp(-12.0, 0.0);
         self.compressor
             .set_amount(self.params.amount, self.params.ceiling_db);
         self.limiter.set_ceiling_db(self.params.ceiling_db);
@@ -235,8 +254,16 @@ impl LoudnessProcessor {
         // already rejects non-finite parameter writes; this is the
         // equivalent for the audio path.
         let (l, r) = (
-            if l.is_finite() { l } else { 0.0 },
-            if r.is_finite() { r } else { 0.0 },
+            if l.is_finite() {
+                l.clamp(-16.0, 16.0)
+            } else {
+                0.0
+            },
+            if r.is_finite() {
+                r.clamp(-16.0, 16.0)
+            } else {
+                0.0
+            },
         );
 
         if self.params.bypass {
@@ -318,13 +345,13 @@ mod tests {
         );
         let input = sine_pair(200.0, 8192, SR, 1.5);
         let output = process(&mut p, &input);
-        // Allow a small overshoot during attack convergence; tail must obey.
+        // Every sample, including attack and release, must respect the ceiling.
         let ceiling_linear = 10.0_f32.powf(-1.0 / 20.0);
-        let tail_peak = output[4096..]
+        let tail_peak = output[..]
             .iter()
             .fold(0.0_f32, |a, &(l, r)| a.max(l.abs()).max(r.abs()));
         assert!(
-            tail_peak <= ceiling_linear + 0.05,
+            tail_peak <= ceiling_linear + 1e-6,
             "tail peak {tail_peak} > {ceiling_linear}"
         );
     }
@@ -391,5 +418,14 @@ mod tests {
         let peak_in = 0.1_f32;
         let peak_out = output.iter().fold(0.0_f32, |a, &(l, _)| a.max(l.abs()));
         assert!(peak_out > peak_in * 0.5);
+    }
+    #[test]
+    fn limiter_never_overshoots_during_release() {
+        let mut limiter = StereoPeakLimiter::new(SR, -1.0, LIMITER_RELEASE_MS);
+        let ceiling = 10.0_f32.powf(-1.0 / 20.0);
+        for _ in 0..1024 {
+            let (l, r) = limiter.process_stereo(2.0, -1.0);
+            assert!(l.abs() <= ceiling + 1e-6 && r.abs() <= ceiling + 1e-6);
+        }
     }
 }

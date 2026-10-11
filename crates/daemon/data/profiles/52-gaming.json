@@ -1,6 +1,6 @@
 {
   "name": "Gaming",
-  "description": "Wide stereo for positional audio, preserved transients (no compression squashing footsteps), bass impact for explosions/UI. Crossfeed enabled so headset gamers hear the soundstage out-of-head — easier to localize enemies.",
+  "description": "Stereo widening, crossfeed and light compression for games. These effects can alter positional cues; compare with the game's own binaural processing before combining them.",
   "match_patterns": [],
   "params": {
     "bigbass:target_freq":   80.0,

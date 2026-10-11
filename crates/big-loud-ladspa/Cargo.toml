@@ -3,6 +3,8 @@ name = "big-loud-ladspa"
 description = "LADSPA wrapper around BigLoud — stereo loudness shaper for PipeWire filter-chain"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [lib]
 name = "big_loud"

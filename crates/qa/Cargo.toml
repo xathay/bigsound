@@ -1,0 +1,16 @@
+[package]
+name = "bigsound-qa"
+description = "Offline validation and stress harness for the complete BigSound DSP chain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+big-bass = { path = "../big-bass" }
+big-clarity = { path = "../big-clarity" }
+big-space = { path = "../big-space" }
+big-cross = { path = "../big-cross" }
+big-loud = { path = "../big-loud" }
+serde_json.workspace = true

@@ -49,6 +49,8 @@ for entry in "${FILES[@]}"; do
     echo -e "${C_DIM}  $file${C_RESET}"
     echo
 
+    # MPV expands these property expressions, not the shell.
+    # shellcheck disable=SC2016
     mpv --no-video \
         --term-status-msg='  ▸ ${time-pos} / ${duration} (vol ${volume}%)' \
         "$file" || { echo "(interrompido)"; exit 0; }

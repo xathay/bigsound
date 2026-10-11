@@ -21,8 +21,8 @@ const DRIVE_MIN: f32 = 1.0;
 const DRIVE_MAX: f32 = 10.0;
 
 /// Smooths the corner of the half-wave rectifier `0.5*(x + sqrt(x² + ε))`
-/// so the function is C∞ at x=0 — eliminates the aliasing the sharp
-/// rectifier would generate.
+/// so the function is smooth at x=0. This reduces corner discontinuity,
+/// but nonlinear processing can still generate aliasing without oversampling.
 const RECTIFIER_EPS: f32 = 1.0e-3;
 
 /// Compensates the amplitude loss of half-wave rectification (mean ≈ 0.5×
@@ -61,6 +61,8 @@ const SIDECHAIN_RELEASE_MS: f32 = 200.0;
 const LIMITER_THRESHOLD: f32 = 0.95;
 const LIMITER_RELEASE_MS: f32 = 50.0;
 
+use crate::biquad::finite_clamp;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BassEnhancerParams {
     /// Lower edge of the band the speaker fails to reproduce (Hz).
@@ -85,6 +87,17 @@ pub struct BassEnhancerParams {
     pub loudness_db: f32,
     /// Pass-through.
     pub bypass: bool,
+}
+
+impl BassEnhancerParams {
+    fn sanitised(mut self) -> Self {
+        self.target_freq = finite_clamp(self.target_freq, 100.0, 40.0, 300.0);
+        self.drive = finite_clamp(self.drive, 0.6, 0.0, 1.0);
+        self.mix = finite_clamp(self.mix, 0.5, 0.0, 1.0);
+        self.cut_dry_lows = finite_clamp(self.cut_dry_lows, 0.0, 0.0, 1.0);
+        self.loudness_db = finite_clamp(self.loudness_db, 4.0, -12.0, 12.0);
+        self
+    }
 }
 
 impl Default for BassEnhancerParams {
@@ -132,14 +145,14 @@ impl PeakLimiter {
 
     #[inline]
     fn process(&mut self, x: f32) -> f32 {
-        let abs_with_gain = (x * self.gain).abs();
-        if abs_with_gain > self.threshold {
-            // Instant attack: clamp gain so the output stays below threshold.
-            self.gain *= self.threshold / abs_with_gain;
+        // Recovery is a candidate gain, still bounded by this sample's peak.
+        let recovered = 1.0 + self.release_coef * (self.gain - 1.0);
+        let allowed = if x.abs() > self.threshold {
+            self.threshold / x.abs()
         } else {
-            // Smooth recovery toward unity.
-            self.gain = 1.0 + self.release_coef * (self.gain - 1.0);
-        }
+            1.0
+        };
+        self.gain = recovered.min(allowed);
         x * self.gain
     }
 
@@ -182,6 +195,7 @@ pub struct BassEnhancerChannel {
     dc_blocker: Biquad,
     sidechain_env: PeakEnvelope,
     limiter: PeakLimiter,
+    makeup_gain: f32,
 }
 
 impl BassEnhancerChannel {
@@ -201,6 +215,7 @@ impl BassEnhancerChannel {
                 SIDECHAIN_RELEASE_MS,
             ),
             limiter: PeakLimiter::new(sample_rate, LIMITER_THRESHOLD, LIMITER_RELEASE_MS),
+            makeup_gain: 1.0,
         }
     }
 
@@ -221,6 +236,7 @@ impl BassEnhancerChannel {
 
     fn update_coeffs(&mut self, sample_rate: f32, params: &BassEnhancerParams) {
         let target = params.target_freq;
+        self.makeup_gain = 10.0_f32.powf(params.loudness_db / 20.0);
 
         let sc_coeffs =
             BiquadCoeffs::bandpass(sample_rate, target * SIDECHAIN_BAND_RATIO, SIDECHAIN_BAND_Q);
@@ -246,6 +262,11 @@ impl BassEnhancerChannel {
 
     #[inline]
     pub fn process(&mut self, input: f32, params: &BassEnhancerParams) -> f32 {
+        let input = if input.is_finite() {
+            input.clamp(-16.0, 16.0)
+        } else {
+            0.0
+        };
         if params.bypass {
             return input;
         }
@@ -301,8 +322,7 @@ impl BassEnhancerChannel {
         // perception that's expected from a FxSound-style enhancer.
         // The limiter immediately after catches any peaks that would
         // clip, so we can push hard without distortion.
-        let makeup = 10.0_f32.powf(params.loudness_db / 20.0);
-        self.limiter.process(enhanced * makeup)
+        self.limiter.process(enhanced * self.makeup_gain)
     }
 }
 
@@ -315,6 +335,11 @@ pub struct BassEnhancer {
 
 impl BassEnhancer {
     pub fn new(num_channels: usize, sample_rate: f32, params: BassEnhancerParams) -> Self {
+        assert!(
+            sample_rate.is_finite() && (8000.0..=768000.0).contains(&sample_rate),
+            "unsupported sample rate"
+        );
+        let params = params.sanitised();
         let mut s = Self {
             channels: (0..num_channels)
                 .map(|_| BassEnhancerChannel::new(sample_rate))
@@ -329,6 +354,7 @@ impl BassEnhancer {
     }
 
     pub fn set_params(&mut self, params: BassEnhancerParams) {
+        let params = params.sanitised();
         self.params = params;
         for ch in &mut self.channels {
             ch.update_coeffs(self.sample_rate, &self.params);
@@ -353,6 +379,9 @@ impl BassEnhancer {
     /// Process interleaved samples in place.
     pub fn process_interleaved(&mut self, samples: &mut [f32]) {
         let n = self.channels.len();
+        if n == 0 {
+            return;
+        }
         for chunk in samples.chunks_exact_mut(n) {
             self.process_frame(chunk);
         }
@@ -468,5 +497,20 @@ mod tests {
         let early_max = output[..256].iter().fold(0.0_f32, |a, &x| a.max(x.abs()));
         let late_max = output[1024..].iter().fold(0.0_f32, |a, &x| a.max(x.abs()));
         assert!(late_max <= early_max + 1.0e-6);
+    }
+    #[test]
+    fn nonfinite_audio_does_not_poison_state() {
+        let mut p = BassEnhancer::new(1, SR, BassEnhancerParams::default());
+        for x in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.3, 0.0] {
+            let mut frame = [x];
+            p.process_frame(&mut frame);
+            assert!(frame[0].is_finite());
+        }
+        for _ in 0..4096 {
+            let x = 0.1;
+            let mut frame = [x];
+            p.process_frame(&mut frame);
+            assert!(frame[0].is_finite());
+        }
     }
 }

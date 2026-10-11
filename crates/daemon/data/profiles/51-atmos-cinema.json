@@ -1,6 +1,6 @@
 {
   "name": "Atmos / Cinema",
-  "description": "Immersive, wide soundstage with cinematic bass impact. Closest free equivalent to Dolby Atmos for stereo content: aggressive widening + crossfeed (so it works on headphones AND speakers) + tasteful low-end push. For films, trailers, big-room mixes.",
+  "description": "Stereo cinema preset with widening, crossfeed and bass enhancement. The name describes the intended character; this does not decode Dolby Atmos or render HRTF audio.",
   "match_patterns": [],
   "params": {
     "bigbass:target_freq":   65.0,

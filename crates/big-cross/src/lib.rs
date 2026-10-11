@@ -11,10 +11,8 @@
 //! BigCross feeds a delayed, low-passed copy of each channel into the
 //! opposite ear. The result on headphones: the soundstage moves out of
 //! the centre of your skull and forward, music feels like it's coming
-//! from speakers in front of you instead of inside your head. Less
-//! fatigue, more natural stereo image. This is the closest free /
-//! algorithmic equivalent to what Dolby Atmos / Apple Spatial Audio
-//! achieve via licensed binaural HRIR convolution.
+//! from speakers in front of you instead of inside your head. A potentially more natural stereo image. This is conventional stereo
+//! crossfeed, not Atmos decoding or head-tracked HRIR rendering.
 //!
 //! Reference: Benjamin Bauer (1961), "Stereophonic Earphones and
 //! Binaural Loudspeakers". HeadRoom and the AMB β22 use similar topology.
@@ -37,6 +35,8 @@ const MIN_BUFFER_SAMPLES: usize = 32;
 
 const US_PER_SEC: f32 = 1_000_000.0;
 
+use big_bass::biquad::finite_clamp;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CrossfeedParams {
     /// 0 = bypass, 1 = full crossfeed (-9 dB cross signal level).
@@ -52,6 +52,15 @@ pub struct CrossfeedParams {
     pub delay_us: f32,
     /// Pass-through.
     pub bypass: bool,
+}
+
+impl CrossfeedParams {
+    fn sanitised(mut self) -> Self {
+        self.amount = finite_clamp(self.amount, 0.0, 0.0, 1.0);
+        self.cutoff_hz = finite_clamp(self.cutoff_hz, 700.0, 400.0, 1500.0);
+        self.delay_us = finite_clamp(self.delay_us, 280.0, 100.0, 500.0);
+        self
+    }
 }
 
 impl Default for CrossfeedParams {
@@ -113,7 +122,7 @@ impl RingDelay {
 
 #[derive(Debug)]
 pub struct CrossfeedProcessor {
-    /// 4th-order Butterworth low-pass on each cross channel — cascade
+    /// 4th-order low-pass (two Q=0.707 biquads) on each cross channel — cascade
     /// of two biquads at the same cutoff so attenuation is steep enough
     /// (~24 dB/oct) that the high frequencies stay properly separated.
     lp_l: [Biquad; 2],
@@ -126,6 +135,11 @@ pub struct CrossfeedProcessor {
 
 impl CrossfeedProcessor {
     pub fn new(sample_rate: f32, params: CrossfeedParams) -> Self {
+        assert!(
+            sample_rate.is_finite() && (8000.0..=768000.0).contains(&sample_rate),
+            "unsupported sample rate"
+        );
+        let params = params.sanitised();
         let cap = ((sample_rate * BUFFER_HEADROOM_SEC) as usize).max(MIN_BUFFER_SAMPLES);
         let mut s = Self {
             lp_l: [Biquad::default(); 2],
@@ -153,6 +167,7 @@ impl CrossfeedProcessor {
     }
 
     pub fn set_params(&mut self, p: CrossfeedParams) {
+        let p = p.sanitised();
         let coeffs_changed = (self.params.cutoff_hz - p.cutoff_hz).abs() > 0.001
             || (self.params.delay_us - p.delay_us).abs() > 0.001;
         self.params = p;
@@ -174,6 +189,16 @@ impl CrossfeedProcessor {
 
     #[inline]
     pub fn process_stereo(&mut self, l: f32, r: f32) -> (f32, f32) {
+        let l = if l.is_finite() {
+            l.clamp(-16.0, 16.0)
+        } else {
+            0.0
+        };
+        let r = if r.is_finite() {
+            r.clamp(-16.0, 16.0)
+        } else {
+            0.0
+        };
         if self.params.bypass || self.params.amount <= 0.0 {
             return (l, r);
         }
@@ -353,5 +378,24 @@ mod tests {
             tail = tail.max(ol.abs()).max(or.abs());
         }
         assert!(tail < 1.0e-5);
+    }
+    #[test]
+    fn nonfinite_audio_does_not_poison_state() {
+        let mut p = CrossfeedProcessor::new(
+            SR,
+            CrossfeedParams {
+                amount: 0.7,
+                ..Default::default()
+            },
+        );
+        for x in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.3, 0.0] {
+            let (l, r) = p.process_stereo(x, 0.2);
+            assert!(l.is_finite() && r.is_finite());
+        }
+        for _ in 0..4096 {
+            let x = 0.1;
+            let (l, r) = p.process_stereo(x, 0.2);
+            assert!(l.is_finite() && r.is_finite());
+        }
     }
 }

@@ -5,41 +5,50 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-    name: Build & lint
-    runs-on: ubuntu-latest
+    name: Build, DSP, ABI and session validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-
-      # System libs the workspace links against (gtk-app, daemon, gettext-rs).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgtk-4-dev libadwaita-1-dev \
-            libdbus-1-dev pkg-config \
-            gettext libgettextpo-dev
-
-      - uses: dtolnay/rust-toolchain@stable
+            libgtk-4-dev libgtk-4-bin libadwaita-1-dev \
+            libdbus-1-dev pkg-config gettext libgettextpo-dev \
+            pipewire pipewire-bin libspa-0.2-modules dbus-x11 shellcheck
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
         with:
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Validation suite
+        env:
+          BIGSOUND_TEST_SESSION: '1'
+        run: ./scripts/validate.sh
+      - name: Publication scan
+        run: python3 scripts/check-publication.py .
 
-      # Caches the Cargo registry + target dir keyed by Cargo.lock.
-      - uses: Swatinem/rust-cache@v2
-
-      - name: cargo fmt --check
-        run: cargo fmt --all -- --check
-
-      - name: cargo clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: cargo build (release)
-        run: cargo build --release --all
-
-      - name: cargo test
-        run: cargo test --all
+  dependencies:
+    name: RustSec (including unsound, unmaintained and yanked warnings)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo install cargo-audit --locked --version 0.22.2
+      - run: cargo audit --deny warnings

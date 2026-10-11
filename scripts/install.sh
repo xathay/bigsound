@@ -37,7 +37,8 @@ step(){ echo -e "${C_DIM}▸${C_RST} $*"; }
 # 1. Build ----------------------------------------------------------------
 step "compilando workspace em release..."
 cd "$BIGSOUND_DIR"
-cargo build --release --quiet
+TARGET_DIR="$(realpath -m "$TARGET_DIR")"
+cargo build --workspace --release --locked --quiet
 BASS_BUILT="$TARGET_DIR/release/libbig_bass.so"
 CLARITY_BUILT="$TARGET_DIR/release/libbig_clarity.so"
 SPACE_BUILT="$TARGET_DIR/release/libbig_space.so"
@@ -187,7 +188,7 @@ ok "$PROFILE_COUNT profile(s) bundled atualizados em $PROFILES_DIR/ (user 99-use
 # path to point at $HOME/.local/bin/bigsound-daemon where install -m 755
 # just placed the binary above.
 mkdir -p "$SYSTEMD_DIR"
-sed "s|^ExecStart=/usr/bin/bigsound-daemon|ExecStart=$BIN_DIR/bigsound-daemon|" \
+sed 's|^ExecStart=/usr/bin/bigsound-daemon|ExecStart="%h/.local/bin/bigsound-daemon"|' \
     "$BIGSOUND_DIR/crates/daemon/data/bigsound-daemon.service" \
     > "$SYSTEMD_DIR/bigsound-daemon.service"
 chmod 644 "$SYSTEMD_DIR/bigsound-daemon.service"
@@ -200,6 +201,7 @@ if systemctl --user is-active bigsound-daemon.service >/dev/null; then
     ok "bigsound-daemon.service rodando"
 else
     err "bigsound-daemon.service NÃO subiu — veja: journalctl --user -u bigsound-daemon -n 20"
+    exit 1
 fi
 
 # 5. Verify ---------------------------------------------------------------

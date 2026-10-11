@@ -1,6 +1,6 @@
 {
   "name": "Headphones",
-  "description": "Gentle tuning + crossfeed for an out-of-head, speaker-like soundstage. The Atmos-on-headphones psychoacoustic experience.",
+  "description": "Gentle enhancement and crossfeed for headphone listening. Crossfeed mixes a filtered, delayed signal between channels; adjust it to taste.",
   "match_patterns": [
     "alsa_output\\..*::analog-output-headphones$",
     "alsa_output\\..*::analog-output-headset$",

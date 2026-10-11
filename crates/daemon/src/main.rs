@@ -36,6 +36,9 @@
 // daemon can reach our methods — a redundant UID check inside each
 // method would not add real protection. We intentionally rely on this.
 
+mod command;
+use command::BoundedCommand;
+
 use anyhow::{bail, Context, Result};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -119,7 +122,7 @@ fn resolve_internal(name: &str) -> Option<&'static [&'static str]> {
 /// Profile = a named bundle of parameter values plus a list of regex
 /// patterns matched against the system default-sink name. When the
 /// default sink changes, the daemon picks the first profile (in lexical
-/// filename order) whose match patterns hit, and applies its params.
+/// profile-name order) whose match patterns hit, and applies its params.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Profile {
     name: String,
@@ -153,9 +156,29 @@ fn output_device_state_path() -> PathBuf {
     config_base().join("bigsound").join("output-device")
 }
 
+/// Bounded, non-blocking read of a regular file; do not follow symlinks.
+fn read_regular_file(path: &std::path::Path, limit: usize) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() > limit as u64 {
+        return Err(std::io::Error::other("not a bounded regular file"));
+    }
+    let mut bytes = Vec::new();
+    file.take(limit as u64 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > limit {
+        return Err(std::io::Error::other("file exceeds limit"));
+    }
+    Ok(bytes)
+}
+
 /// Load the persisted output-device choice. `None` = automatic.
 fn load_output_device() -> Option<String> {
-    let s = std::fs::read_to_string(output_device_state_path()).ok()?;
+    let s = String::from_utf8(read_regular_file(&output_device_state_path(), 256).ok()?).ok()?;
     let s = s.trim();
     if s.is_empty() {
         None
@@ -164,14 +187,15 @@ fn load_output_device() -> Option<String> {
     }
 }
 
-/// Persist the output-device choice (best-effort). `None` writes an empty
+/// Persist the output-device choice, reporting errors. `None` writes an empty
 /// file meaning "automatic".
-fn save_output_device(target: &Option<String>) {
+fn save_output_device(target: &Option<String>) -> Result<()> {
     let path = output_device_state_path();
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        std::fs::create_dir_all(parent)?;
     }
-    let _ = std::fs::write(&path, target.as_deref().unwrap_or(""));
+    atomic_write(&path, target.as_deref().unwrap_or("").as_bytes())
+        .context("persisting output choice")
 }
 
 const SYSTEM_PROFILES_DIR: &str = "/usr/share/bigsound/profiles";
@@ -181,6 +205,66 @@ fn profiles_dir() -> PathBuf {
     user_profiles_dir()
 }
 
+/// Parameter ranges match the LADSPA controls, keeping the cache and DSP consistent.
+fn parameter_range(name: &str) -> Option<(f64, f64)> {
+    Some(match name {
+        "bigbass:target_freq" => (40.0, 300.0),
+        "bigbass:loudness_db" => (-12.0, 12.0),
+        "bigclarity:target_freq" => (1500.0, 8000.0),
+        "bigspace:width" => (0.0, 2.0),
+        "bigspace:bass_keep_hz" => (40.0, 400.0),
+        "bigcross:cutoff_hz" => (400.0, 1500.0),
+        "bigcross:delay_us" => (100.0, 500.0),
+        "bigloud:ceiling_db" => (-12.0, 0.0),
+        _ if resolve_internal(name).is_some() => (0.0, 1.0),
+        _ => return None,
+    })
+}
+
+fn valid_parameter(name: &str, value: f64) -> bool {
+    value.is_finite()
+        && parameter_range(name).is_some_and(|(low, high)| (low..=high).contains(&value))
+}
+
+fn valid_display_name(name: &str) -> bool {
+    !name.trim().is_empty() && name.len() <= 128 && !name.chars().any(char::is_control)
+}
+
+fn valid_profile_name(name: &str) -> bool {
+    !name.trim().is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ' ')
+}
+
+/// Write beside the destination and rename: crashes cannot leave truncated JSON.
+fn atomic_write(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let tmp = path.with_extension(format!(
+        "tmp-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)?;
+    let result = (|| {
+        file.write_all(data)?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, path)?;
+        std::fs::File::open(path.parent().unwrap_or(std::path::Path::new(".")))?.sync_all()
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
 /// Drop any `params` key that doesn't appear in the canonical PARAMS
 /// list, and reject keys that obviously look hostile (control chars,
 /// excessively long). Loaded profiles can come from anywhere on disk —
@@ -188,14 +272,14 @@ fn profiles_dir() -> PathBuf {
 /// becomes a no-op instead of triggering odd behaviour later in the
 /// chain. Drops are logged so the user sees why a key was ignored.
 fn sanitise_profile(profile: &mut Profile, source: &std::path::Path) {
-    profile.params.retain(|k, _v| {
+    profile.params.retain(|k, v| {
         let valid = !k.is_empty()
             && k.len() <= 64
             && k.chars().all(|c| c.is_ascii_graphic())
-            && resolve_internal(k).is_some();
+            && valid_parameter(k, *v);
         if !valid {
             eprintln!(
-                "bigsound-daemon: dropping unknown/malformed param '{}' from {}",
+                "bigsound-daemon: dropping unknown/malformed param {:?} from {}",
                 k,
                 source.display()
             );
@@ -217,16 +301,20 @@ fn load_profiles() -> HashMap<String, Profile> {
             continue;
         };
         let mut paths: Vec<PathBuf> = entries
+            .take(1024)
             .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
             .collect();
         paths.sort();
         for path in paths {
-            let Ok(bytes) = std::fs::read(&path) else {
+            let Ok(bytes) = read_regular_file(&path, 65536) else {
                 continue;
             };
             match serde_json::from_slice::<Profile>(&bytes) {
                 Ok(mut p) => {
+                    if !valid_display_name(&p.name) {
+                        continue;
+                    }
                     sanitise_profile(&mut p, &path);
                     map.insert(p.name.clone(), p);
                 }
@@ -243,8 +331,7 @@ fn find_matching_profile<'a>(
 ) -> Option<&'a Profile> {
     // Iterate in alphabetical order of profile name so behaviour is
     // deterministic regardless of HashMap iteration order. The numeric
-    // prefix convention (00-default, 10-laptop, 20-headphones, ...)
-    // gives a sensible priority cascade.
+    // filenames are only used when loading; this lookup orders display names.
     let mut names: Vec<&String> = profiles.keys().collect();
     names.sort();
     for name in names {
@@ -261,7 +348,7 @@ fn find_matching_profile<'a>(
 }
 
 fn current_default_sink_name() -> Option<String> {
-    let out = Command::new("pactl").arg("info").output().ok()?;
+    let out = Command::new("pactl").arg("info").bounded_output().ok()?;
     let txt = String::from_utf8_lossy(&out.stdout);
     for line in txt.lines() {
         if let Some(rest) = line.strip_prefix("Default Sink:") {
@@ -279,7 +366,7 @@ fn current_default_sink_name() -> Option<String> {
 fn active_port_for_sink(sink_name: &str) -> Option<String> {
     let out = Command::new("pactl")
         .args(["list", "sinks"])
-        .output()
+        .bounded_output()
         .ok()?;
     let txt = String::from_utf8_lossy(&out.stdout);
     let mut in_target = false;
@@ -316,7 +403,7 @@ fn active_port_for_sink(sink_name: &str) -> Option<String> {
 fn real_sink_behind_output() -> Option<String> {
     let out = Command::new("pw-link")
         .args(["-l", "BigSound.output"])
-        .output()
+        .bounded_output()
         .ok()?;
     let txt = String::from_utf8_lossy(&out.stdout);
     let mut current_target: Option<&str> = None;
@@ -373,7 +460,7 @@ fn discover_node_id(node_name: &str) -> Result<u32> {
 
 fn pipewire_dump() -> Result<JsonValue> {
     let output = Command::new("pw-dump")
-        .output()
+        .bounded_output()
         .context("running pw-dump (PipeWire installed?)")?;
     if !output.status.success() {
         bail!(
@@ -443,20 +530,95 @@ fn node_target_from_dump(dump: &JsonValue, node_name: &str) -> Result<NodeTarget
 /// the expected `node.name`? Uses `pw-cli info <id>` (one object, a few
 /// hundred bytes) instead of `pw-dump` (the whole graph as JSON, easily
 /// hundreds of KB) so it's safe to call from the 3 s background tick.
-fn node_id_matches(id: u32, node_name: &str) -> bool {
+fn node_info_matches(info: &str, node_name: &str, serial: Option<u32>) -> bool {
+    let property = |key: &str| {
+        info.lines().find_map(|line| {
+            let (name, value) = line.split_once('=')?;
+            (name.trim().trim_start_matches('*').trim() == key)
+                .then(|| value.trim().trim_matches('"'))
+        })
+    };
+    property("node.name") == Some(node_name)
+        && serial.is_none_or(|expected| {
+            property("object.serial").and_then(|s| s.parse::<u32>().ok()) == Some(expected)
+        })
+}
+
+fn node_id_matches(id: u32, node_name: &str, serial: Option<u32>) -> bool {
     if id == 0 {
         return false;
     }
     let Ok(out) = Command::new("pw-cli")
         .args(["info", &id.to_string()])
-        .output()
+        .bounded_output()
     else {
         return false;
     };
     if !out.status.success() {
         return false;
     }
-    String::from_utf8_lossy(&out.stdout).contains(&format!("node.name = \"{node_name}\""))
+    node_info_matches(&String::from_utf8_lossy(&out.stdout), node_name, serial)
+}
+
+/// Whether the live PipeWire graph currently routes `BigSound.output` to
+/// `sink_name`. A configured metadata target is only a preference: session
+/// policy may move an already-linked stream later (for example to a
+/// high-priority USB microphone playback endpoint). Checking the actual link
+/// prevents the daemon from mistaking a live output node for a correctly
+/// routed one.
+fn output_links_to_sink(sink_name: &str) -> bool {
+    let Ok(output) = Command::new("pw-link")
+        .args(["-l", "BigSound.output"])
+        .bounded_output()
+    else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    output_links_to_sink_from_text(&String::from_utf8_lossy(&output.stdout), sink_name)
+}
+
+fn output_links_to_sink_from_text(links: &str, sink_name: &str) -> bool {
+    let mut target_matches = false;
+    for line in links.lines() {
+        if !line.starts_with(' ') {
+            let target = line.trim();
+            target_matches = target
+                .rsplit_once(':')
+                .map(|(node, _)| node == sink_name)
+                .unwrap_or(false);
+            continue;
+        }
+        if target_matches
+            && line
+                .trim_start()
+                .strip_prefix("|<- ")
+                .is_some_and(|source| source.starts_with("BigSound.output:"))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Move the already-live playback stream immediately. PipeWire metadata pins
+/// guide WirePlumber when a stream is linked, but changing metadata alone does
+/// not reliably detach an existing link. The Pulse compatibility API exposes
+/// PipeWire's `object.serial` as the sink-input index, so this performs the
+/// same move users make in pavucontrol/wiremix.
+fn move_output_stream(out_serial: u32, sink_name: &str) -> Result<()> {
+    let output = Command::new("pactl")
+        .args(["move-sink-input", &out_serial.to_string(), sink_name])
+        .bounded_output()
+        .context("running pactl move-sink-input")?;
+    if !output.status.success() {
+        bail!(
+            "pactl move-sink-input failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
 }
 
 /// Enumerate the real output sinks the user could route BigSound through —
@@ -465,7 +627,7 @@ fn node_id_matches(id: u32, node_name: &str) -> bool {
 /// dropdown is stable. `node.name` is the stable identifier we pin
 /// `target.object` to; the description is what the user sees.
 fn list_real_output_sinks() -> Vec<(String, String)> {
-    let Ok(output) = Command::new("pw-dump").output() else {
+    let Ok(output) = Command::new("pw-dump").bounded_output() else {
         return Vec::new();
     };
     if !output.status.success() {
@@ -566,7 +728,7 @@ fn set_metadata(out_id: u32, key: &str, value: Option<&str>, value_type: &str) -
             cmd.arg("-d").arg(out_id.to_string()).arg(key);
         }
     }
-    let output = cmd.output().context("running pw-metadata")?;
+    let output = cmd.bounded_output().context("running pw-metadata")?;
     if !output.status.success() {
         bail!(
             "pw-metadata failed: {}",
@@ -576,86 +738,72 @@ fn set_metadata(out_id: u32, key: &str, value: Option<&str>, value_type: &str) -
     Ok(())
 }
 
-fn push_internal_value(node_id: u32, internal: &str, value: f64) -> Result<()> {
-    // Reject non-finite values up front — they'd serialize as the
-    // literal `NaN`/`inf` token in the SPA pod, which pw-cli rejects
-    // and which would, in a worst case, escape into shell-interpretable
-    // tokens if pw-cli's pod parser ever drops to a permissive mode.
-    if !value.is_finite() {
-        bail!(
-            "refusing to push non-finite value {} for {}",
-            value,
-            internal
-        );
+/// One PipeWire update for the complete stereo control transaction.
+fn control_pod(values: &[(&str, f64)]) -> Result<String> {
+    use std::fmt::Write;
+    let mut pod = String::from("{ params = [ ");
+    for &(internal, value) in values {
+        if !value.is_finite() || !PARAMS.iter().any(|(_, names, _)| names.contains(&internal)) {
+            bail!("invalid internal control or non-finite value");
+        }
+        write!(&mut pod, "\"{internal}\" {value} ")?;
     }
-    let pod = format!("{{ params = [ \"{internal}\" {value} ] }}");
+    pod.push_str("] }");
+    Ok(pod)
+}
+
+fn push_internal_values(node_id: u32, values: &[(&str, f64)]) -> Result<()> {
+    let pod = control_pod(values)?;
     let output = Command::new("pw-cli")
         .args(["set-param", &node_id.to_string(), "Props", &pod])
-        .output()
+        .bounded_output()
         .context("running pw-cli set-param")?;
-    // pw-cli exits 0 even when set-param fails — it just prints
-    // `Error: "..."` on stdout/stderr. Treat any such marker as failure
-    // so the caller can react (e.g. re-discover the node id).
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
     if !output.status.success() || stderr.contains("Error:") || stdout.contains("Error:") {
         bail!(
             "pw-cli set-param failed: {}",
             if !stderr.trim().is_empty() {
-                stderr.into_owned()
+                stderr
             } else {
-                stdout.into_owned()
+                stdout
             }
         );
     }
     Ok(())
 }
 
-/// Push one value, refreshing the cached node id once if pw-cli rejects
-/// the target (filter-chain.service restarts hand out new node ids and
-/// our cached one goes stale — without this retry, every Set/ApplyProfile
-/// silently no-ops until the daemon itself is restarted).
-///
-/// Any push error triggers one re-discovery attempt. We used to string-match
-/// pw-cli's error text ("no global", "not found", …) to decide whether the
-/// id looked stale, but the real world defeated that: after a filter-chain
-/// restart the old id can be *reused by a different object* (observed: a
-/// Port), and pw-cli then says "set-param not implemented on object N" —
-/// a wording the allowlist missed, so every push silently no-op'd. If the
-/// failure wasn't staleness (e.g. pw-cli itself missing), discovery fails
-/// too and we return the original error — one extra pw-dump, no thrash.
-fn push_with_refresh(node_id_atom: &AtomicU32, internal: &str, value: f64) -> Result<()> {
+fn push_with_refresh(node_id_atom: &AtomicU32, values: &[(&str, f64)]) -> Result<()> {
     let nid = node_id_atom.load(Ordering::Acquire);
-    match push_internal_value(nid, internal, value) {
+    match push_internal_values(nid, values) {
         Ok(()) => Ok(()),
         Err(e) => match discover_bigsound_node_id() {
             Ok(fresh) if fresh != nid => {
-                eprintln!(
-                    "bigsound-daemon: BigSound node id changed {nid} → {fresh} (filter-chain restarted?); retrying push"
-                );
                 node_id_atom.store(fresh, Ordering::Release);
-                push_internal_value(fresh, internal, value)
+                push_internal_values(fresh, values)
             }
             _ => Err(e),
         },
     }
 }
 
-/// Push every cache entry to PipeWire (best-effort, silent on failure).
-fn push_cache_to_pipewire(node_id_atom: &AtomicU32, cache: &HashMap<String, f64>) {
+fn push_cache_to_pipewire(node_id_atom: &AtomicU32, cache: &HashMap<String, f64>) -> Result<()> {
+    let mut values = Vec::new();
     for (public, internals, _) in PARAMS {
-        let value = match cache.get(*public) {
-            Some(v) => *v,
-            None => continue,
-        };
-        for internal in *internals {
-            let _ = push_with_refresh(node_id_atom, internal, value);
+        if let Some(&value) = cache.get(*public) {
+            for internal in *internals {
+                values.push((*internal, value));
+            }
         }
     }
+    push_with_refresh(node_id_atom, &values)
 }
 
 struct ServiceInner {
+    /// Serialize cache changes and pushes, including background retries.
+    updates: Mutex<()>,
     node_id: AtomicU32,
+    node_serial: AtomicU32,
     cache: Mutex<HashMap<String, f64>>,
     /// Bumped on every cache mutation. The background thread compares
     /// against `last_pushed_gen` to skip re-pushing when nothing has
@@ -678,13 +826,15 @@ struct ServiceInner {
 }
 
 impl ServiceInner {
-    fn new(node_id: u32) -> Self {
+    fn new(node: NodeTarget) -> Self {
         let mut cache = HashMap::with_capacity(PARAMS.len());
         for (name, _, default) in PARAMS {
             cache.insert((*name).to_string(), *default);
         }
         Self {
-            node_id: AtomicU32::new(node_id),
+            updates: Mutex::new(()),
+            node_id: AtomicU32::new(node.id),
+            node_serial: AtomicU32::new(node.serial),
             cache: Mutex::new(cache),
             cache_gen: AtomicU64::new(0),
             profiles: Mutex::new(load_profiles()),
@@ -702,13 +852,9 @@ impl ServiceInner {
     /// a cheap no-op — the pin is cleared at the moment the user switches to
     /// automatic, and a fresh `BigSound.output` starts unpinned anyway.
     ///
-    /// `force = false` (the background tick) first checks whether the cached
-    /// node id is still the live `BigSound.output`; if so the metadata pin
-    /// asserted on it is still in place and we return without spawning
-    /// pw-dump or rewriting metadata. This keeps the steady-state tick light
-    /// and also means a manual re-route via pavucontrol isn't fought every
-    /// 3 s — the daemon's pin re-wins only when the node is recreated.
-    /// `force = true` (user just picked a device) always re-asserts.
+    /// `force = false` checks both node identity and live routing before
+    /// returning. A configured pin is reasserted if another stream policy
+    /// moves the playback link. `force = true` always reapplies the choice.
     fn enforce_output_device(&self, force: bool) -> Result<()> {
         let target = self
             .output_device
@@ -720,17 +866,21 @@ impl ServiceInner {
         };
         if !force {
             let cached = self.output_node_id.load(Ordering::Acquire);
-            if node_id_matches(cached, "BigSound.output") {
+            if node_id_matches(cached, "BigSound.output", None) && output_links_to_sink(&sink) {
                 return Ok(());
             }
         }
         let dump = pipewire_dump()?;
-        let out_id = node_target_from_dump(&dump, "BigSound.output")?.id;
+        let output = node_target_from_dump(&dump, "BigSound.output")?;
         let target = node_target_from_dump(&dump, &sink)
             .with_context(|| format!("resolving output device '{sink}'"))?;
-        set_output_target(out_id, Some(target.serial))
+        // Move the current live link first, then leave a native PipeWire
+        // metadata pin behind for subsequent reconnects/re-creations.
+        move_output_stream(output.serial, &sink)
+            .with_context(|| format!("moving output to '{sink}'"))?;
+        set_output_target(output.id, Some(target.serial))
             .with_context(|| format!("pinning output to '{sink}'"))?;
-        self.output_node_id.store(out_id, Ordering::Release);
+        self.output_node_id.store(output.id, Ordering::Release);
         Ok(())
     }
 
@@ -740,22 +890,24 @@ impl ServiceInner {
         self.cache_gen.fetch_add(1, Ordering::Release);
     }
 
-    fn apply_profile_inner(&self, profile: &Profile) {
+    fn apply_profile_inner(&self, profile: &Profile) -> Result<()> {
+        let _update = self.updates.lock().unwrap_or_else(|e| e.into_inner());
         // Recover from a poisoned mutex instead of panicking — a panic
         // in any other handler shouldn't permanently disable the daemon.
-        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let mut snapshot = self.cache.lock().unwrap_or_else(|e| e.into_inner()).clone();
         for (k, v) in &profile.params {
-            cache.insert(k.clone(), *v);
+            snapshot.insert(k.clone(), *v);
         }
-        // Snapshot for pushing while not holding any other lock.
-        let snapshot = cache.clone();
-        drop(cache);
+        // Commit the visible state only after PipeWire accepts the update.
+        // A failed request must not be applied later by a background retry.
+        push_cache_to_pipewire(&self.node_id, &snapshot)?;
+        *self.cache.lock().unwrap_or_else(|e| e.into_inner()) = snapshot;
         self.bump_cache_gen();
-        push_cache_to_pipewire(&self.node_id, &snapshot);
         *self
             .active_profile
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some(profile.name.clone());
+        Ok(())
     }
 }
 
@@ -767,24 +919,26 @@ struct BigSoundService {
 #[interface(name = "com.bigcommunity.BigSound1")]
 impl BigSoundService {
     fn set(&self, name: &str, value: f64) -> zbus::fdo::Result<()> {
-        if !value.is_finite() {
+        let _update = self.inner.updates.lock().unwrap_or_else(|e| e.into_inner());
+        if !valid_parameter(name, value) {
             return Err(zbus::fdo::Error::InvalidArgs(format!(
-                "value must be finite (got {value})"
+                "unknown parameter or value outside its finite range: '{name}'"
             )));
         }
         let internals = resolve_internal(name)
             .ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("unknown parameter '{name}'")))?;
-        // Recover from a poisoned mutex like every other handler — skipping
-        // the cache write here would silently desync `Get` from PipeWire.
+        let values: Vec<_> = internals
+            .iter()
+            .map(|&internal| (internal, value))
+            .collect();
+        push_with_refresh(&self.inner.node_id, &values)
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
         self.inner
             .cache
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .insert(name.to_string(), value);
         self.inner.bump_cache_gen();
-        for internal in internals {
-            let _ = push_with_refresh(&self.inner.node_id, internal, value);
-        }
         Ok(())
     }
 
@@ -844,8 +998,9 @@ impl BigSoundService {
                 .cloned()
                 .ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("no such profile '{name}'")))?
         };
-        self.inner.apply_profile_inner(&profile);
-        Ok(())
+        self.inner
+            .apply_profile_inner(&profile)
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
     }
 
     fn save_profile(&self, name: &str) -> zbus::fdo::Result<()> {
@@ -853,11 +1008,7 @@ impl BigSoundService {
         // Unicode lookalikes (∕, /, NUL bytes) can't smuggle in a path
         // separator. Caps profile-name length too so a malicious client
         // can't fill up disk via long filenames.
-        let valid_name = !name.is_empty()
-            && name.len() <= 64
-            && name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ' ');
+        let valid_name = valid_profile_name(name);
         if !valid_name {
             return Err(zbus::fdo::Error::InvalidArgs(
                 "profile name must be 1..=64 ASCII chars: alphanumeric, '-', '_', or space".into(),
@@ -882,7 +1033,7 @@ impl BigSoundService {
         let path = dir.join(format!("99-user-{name}.json"));
         let json = serde_json::to_string_pretty(&profile)
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
-        std::fs::write(&path, json)
+        atomic_write(&path, json.as_bytes())
             .map_err(|e| zbus::fdo::Error::Failed(format!("writing {}: {e}", path.display())))?;
 
         // Refresh the in-memory profiles map.
@@ -895,11 +1046,7 @@ impl BigSoundService {
     fn delete_profile(&self, name: &str) -> zbus::fdo::Result<()> {
         // Same allowlist as save_profile — defence in depth even though
         // the lookup is constrained to 99-user-<name>.json.
-        let valid_name = !name.is_empty()
-            && name.len() <= 64
-            && name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ' ');
+        let valid_name = valid_profile_name(name);
         if !valid_name {
             return Err(zbus::fdo::Error::InvalidArgs(
                 "profile name must be 1..=64 ASCII chars: alphanumeric, '-', '_', or space".into(),
@@ -960,6 +1107,7 @@ impl BigSoundService {
             // contain either.
             let ok = trimmed.len() <= 256
                 && trimmed != "BigSound"
+                && trimmed != "BigSound.output"
                 && trimmed
                     .chars()
                     .all(|c| c.is_ascii_graphic() && c != '"' && c != '\\');
@@ -1004,8 +1152,7 @@ impl BigSoundService {
             return Err(zbus::fdo::Error::Failed(error.to_string()));
         }
 
-        save_output_device(&new_target);
-        Ok(())
+        save_output_device(&new_target).map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
     }
 
     #[zbus(property)]
@@ -1048,13 +1195,18 @@ fn run_background(inner: Arc<ServiceInner>) {
         // the chain snaps back to the user's tuning within one tick.
         let mut force_repush = false;
         let nid = inner.node_id.load(Ordering::Acquire);
-        if !node_id_matches(nid, "BigSound") {
-            match discover_bigsound_node_id() {
+        if !node_id_matches(
+            nid,
+            "BigSound",
+            Some(inner.node_serial.load(Ordering::Acquire)),
+        ) {
+            match discover_node_target("BigSound") {
                 Ok(fresh) => {
                     eprintln!(
-                        "bigsound-daemon: BigSound node id changed {nid} → {fresh} (filter-chain restarted?); re-pushing tuning"
+                        "bigsound-daemon: BigSound node identity changed from {nid} (filter-chain restarted?); re-pushing tuning"
                     );
-                    inner.node_id.store(fresh, Ordering::Release);
+                    inner.node_id.store(fresh.id, Ordering::Release);
+                    inner.node_serial.store(fresh.serial, Ordering::Release);
                     force_repush = true;
                 }
                 Err(e) => {
@@ -1068,13 +1220,16 @@ fn run_background(inner: Arc<ServiceInner>) {
         // unconditionally right after a filter-chain restart (see a0).
         let current_gen = inner.cache_gen.load(Ordering::Acquire);
         if force_repush || current_gen != last_pushed_gen {
+            let _update = inner.updates.lock().unwrap_or_else(|e| e.into_inner());
             let snapshot = inner
                 .cache
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .clone();
-            push_cache_to_pipewire(&inner.node_id, &snapshot);
-            last_pushed_gen = current_gen;
+            match push_cache_to_pipewire(&inner.node_id, &snapshot) {
+                Ok(()) => last_pushed_gen = current_gen,
+                Err(e) => eprintln!("bigsound-daemon: control retry failed: {e}"),
+            }
         }
 
         // (a2) Keep the chosen output device pinned. Cheap no-op when set
@@ -1135,7 +1290,9 @@ fn run_background(inner: Arc<ServiceInner>) {
                     "bigsound-daemon: applying profile '{}' for sink '{current}'",
                     profile.name
                 );
-                inner.apply_profile_inner(&profile);
+                if let Err(e) = inner.apply_profile_inner(&profile) {
+                    eprintln!("bigsound-daemon: applying profile failed: {e}");
+                }
             }
             None => {
                 eprintln!(
@@ -1154,8 +1311,8 @@ fn main() -> Result<()> {
     // session bring-up) doesn't burn through systemd's restart limit.
     const DISCOVER_ATTEMPTS: u32 = 30;
     let mut attempt = 0;
-    let node_id = loop {
-        match discover_bigsound_node_id() {
+    let node = loop {
+        match discover_node_target("BigSound") {
             Ok(id) => break id,
             Err(e) => {
                 attempt += 1;
@@ -1169,15 +1326,18 @@ fn main() -> Result<()> {
             }
         }
     };
-    eprintln!("bigsound-daemon: BigSound node id = {node_id}");
+    eprintln!("bigsound-daemon: BigSound node id = {}", node.id);
 
-    let inner = Arc::new(ServiceInner::new(node_id));
+    let inner = Arc::new(ServiceInner::new(node));
 
     // Initial push of cache to PipeWire so the running filter-chain
     // matches our defaults from the get-go.
     {
         let cache = inner.cache.lock().unwrap_or_else(|e| e.into_inner());
-        push_cache_to_pipewire(&inner.node_id, &cache);
+        if let Err(e) = push_cache_to_pipewire(&inner.node_id, &cache) {
+            eprintln!("bigsound-daemon: initial controls pending retry: {e}");
+            inner.bump_cache_gen();
+        }
     }
 
     // Re-assert a persisted output-device pin on startup (no-op when the
@@ -1188,7 +1348,7 @@ fn main() -> Result<()> {
         eprintln!("bigsound-daemon: restoring output device failed: {e}");
     }
     eprintln!(
-        "bigsound-daemon: loaded {} profile(s) from {}",
+        "bigsound-daemon: loaded {} profile(s); user directory {}",
         inner
             .profiles
             .lock()
@@ -1320,5 +1480,151 @@ mod tests {
         assert!(updates.iter().all(|update| update.value.is_none()));
         assert_eq!(updates[0].key, "target.object");
         assert_eq!(updates[1].key, "target.node");
+    }
+
+    #[test]
+    fn detects_configured_sink_in_live_output_links() {
+        let links = r#"BigSound.output:output_FL
+  |-> wiremix-capture:input_FL
+bluez_output.AA_BB.1:playback_FL
+  |<- BigSound.output:output_FL
+bluez_output.AA_BB.1:playback_FR
+  |<- BigSound.output:output_FR
+"#;
+
+        assert!(output_links_to_sink_from_text(
+            links,
+            "bluez_output.AA_BB.1"
+        ));
+        assert!(!output_links_to_sink_from_text(
+            links,
+            "alsa_output.usb-microphone"
+        ));
+    }
+
+    #[test]
+    fn rejects_stale_link_to_a_different_sink() {
+        let links = r#"alsa_output.usb-microphone:playback_FL
+  |<- BigSound.output:output_FL
+alsa_output.usb-microphone:playback_FR
+  |<- BigSound.output:output_FR
+"#;
+
+        assert!(!output_links_to_sink_from_text(
+            links,
+            "bluez_output.AA_BB.1"
+        ));
+    }
+    #[test]
+    fn bundled_profiles_and_defaults_obey_control_ranges() {
+        for (name, _, default) in PARAMS {
+            assert!(valid_parameter(name, *default), "{name}");
+        }
+        for entry in
+            std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/data/profiles")).unwrap()
+        {
+            let profile: Profile =
+                serde_json::from_slice(&std::fs::read(entry.unwrap().path()).unwrap()).unwrap();
+            assert!(valid_display_name(&profile.name));
+            assert_eq!(profile.params.len(), PARAMS.len());
+            for (name, value) in &profile.params {
+                assert!(valid_parameter(name, *value), "{}: {name}", profile.name);
+            }
+            for pattern in &profile.match_patterns {
+                assert!(Regex::new(pattern).is_ok());
+            }
+            if profile.name == "BigSound" {
+                for (name, _, default) in PARAMS {
+                    assert_eq!(profile.params[*name], *default);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_controls_and_profile_paths_are_rejected() {
+        for value in [f64::NAN, f64::INFINITY, -0.1, 1.1] {
+            assert!(!valid_parameter("bigloud:amount", value));
+        }
+        assert!(!valid_parameter("unknown", 0.5));
+        for name in ["", " ", "../private", "a/b", "a\\b", "a\n", "a∕b"] {
+            assert!(!valid_profile_name(name));
+        }
+        assert!(valid_profile_name("My Mix-2_"));
+        assert!(!valid_profile_name(&"a".repeat(65)));
+    }
+
+    #[test]
+    fn loaded_profile_drops_out_of_range_and_unknown_values() {
+        let mut profile = Profile {
+            name: "test".into(),
+            description: String::new(),
+            match_patterns: vec![],
+            params: [
+                ("bigbass:mix".into(), 0.2),
+                ("bigcross:amount".into(), 99.0),
+                ("unknown".into(), 0.3),
+                ("bigloud:mix".into(), f64::NAN),
+            ]
+            .into(),
+        };
+        sanitise_profile(&mut profile, std::path::Path::new("fixture.json"));
+        assert_eq!(profile.params.len(), 1);
+        assert_eq!(profile.params["bigbass:mix"], 0.2);
+    }
+
+    #[test]
+    fn control_transaction_contains_both_channels_and_rejects_injection() {
+        let pod = control_pod(&[("bigbass_l:mix", 0.2), ("bigbass_r:mix", 0.2)]).unwrap();
+        assert_eq!(
+            pod,
+            "{ params = [ \"bigbass_l:mix\" 0.2 \"bigbass_r:mix\" 0.2 ] }"
+        );
+        assert!(control_pod(&[("bad\" ] }", 0.2)]).is_err());
+        assert!(control_pod(&[("bigbass_l:mix", f64::INFINITY)]).is_err());
+    }
+
+    #[test]
+    fn persistence_replaces_atomically_and_does_not_follow_destination_symlink() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let dir =
+            std::env::temp_dir().join(format!("bigsound-persistence-test-{}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let target = dir.join("profile.json");
+        let victim = dir.join("unrelated.json");
+        std::fs::write(&victim, b"unchanged").unwrap();
+        symlink(&victim, &target).unwrap();
+        atomic_write(&target, b"first").unwrap();
+        atomic_write(&target, b"second").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"second");
+        assert_eq!(std::fs::read(&victim).unwrap(), b"unchanged");
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn recycled_node_id_requires_matching_object_serial() {
+        let info = "  * node.name = \"BigSound\"\n    object.serial = \"120\"\n";
+        assert!(node_info_matches(info, "BigSound", Some(120)));
+        assert!(!node_info_matches(info, "BigSound", Some(119)));
+        assert!(!node_info_matches(info, "Other", Some(120)));
+    }
+    #[test]
+    fn bounded_file_reads_reject_large_files_and_symlinks() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!("bigsound-read-test-{}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("profile.json");
+        std::fs::write(&path, b"data").unwrap();
+        assert_eq!(read_regular_file(&path, 4).unwrap(), b"data");
+        assert!(read_regular_file(&path, 3).is_err());
+        let link = dir.join("link.json");
+        symlink(&path, &link).unwrap();
+        assert!(read_regular_file(&link, 10).is_err());
+        assert!(read_regular_file(&dir, 10).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

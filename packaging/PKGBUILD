@@ -2,7 +2,7 @@
 # Contributor: BigCommunity Team
 
 pkgname=bigsound
-pkgver=0.7.1
+pkgver=0.7.2
 pkgrel=1
 pkgdesc='System-wide audio enhancement for BigCommunity (BigBass + BigClarity + BigSpace + BigCross + BigLoud) with auto-profile per output device'
 arch=('x86_64')
@@ -13,9 +13,12 @@ depends=(
     'pipewire'
     'pipewire-pulse'
     'gtk4'
-    'libadwaita'
+    'libadwaita>=1.4'
     'glibc'
-    'gcc-libs'
+    'libgcc'
+    'glib2'
+    'hicolor-icon-theme'
+    'libpulse'
 )
 makedepends=(
     'rust'
@@ -26,10 +29,7 @@ makedepends=(
 optdepends=(
     'pipewire-jack: replace JACK with PipeWire-JACK for compatibility'
 )
-conflicts=(
-    'jamesdsp'
-    'easyeffects'
-)
+
 provides=("$pkgname=$pkgver")
 install=bigsound.install
 
@@ -47,7 +47,7 @@ _root="$(realpath "$startdir/..")"
 _target="${CARGO_TARGET_DIR:-$_root/target}"
 
 prepare() {
-    cd "$_root"
+    cd "$_root" || return 1
     # Reproducible builds need a committed lock file. Fail loudly if it
     # disappeared rather than silently building against the latest
     # registry contents.
@@ -55,15 +55,28 @@ prepare() {
         echo "ERROR: Cargo.lock missing — required for --frozen build"
         return 1
     }
-    # Populate Cargo's vendor cache. Try locked first (uses Cargo.lock
-    # exactly); fall back to non-locked only when --frozen would fail
-    # because of a registry-format upgrade.
-    cargo fetch --locked || cargo fetch || return 1
+    # Never change dependency resolution during packaging.
+    cargo fetch --locked || return 1
 }
 
 build() {
-    cd "$_root"
-    cargo build --release --frozen \
+    cd "$_root" || return 1
+    # Normalized archive timestamps can hide changed source from an old
+    # Cargo fingerprint. Rebuild workspace artifacts, retaining dependencies.
+    cargo clean --release --workspace --locked --target-dir "$_target" || return 1
+    # Rust panic locations can embed local Cargo registry/home paths even
+    # in stripped binaries. Keep caller flags and remove machine identities.
+    local _encoded_flags="${CARGO_ENCODED_RUSTFLAGS-}"
+    if [[ ! -v CARGO_ENCODED_RUSTFLAGS ]]; then
+        local -a _rust_flags=()
+        local _flag
+        read -r -a _rust_flags <<< "${RUSTFLAGS-}"
+        for _flag in "${_rust_flags[@]}"; do
+            _encoded_flags+="${_encoded_flags:+$'\x1f'}$_flag"
+        done
+    fi
+    export CARGO_ENCODED_RUSTFLAGS="${_encoded_flags}${_encoded_flags:+$'\x1f'}--remap-path-prefix=$HOME=/build/user"$'\x1f'"--remap-path-prefix=$_root=/build/bigsound"
+    cargo build --release --frozen --target-dir "$_target" \
         -p big-bass-ladspa \
         -p big-clarity-ladspa \
         -p big-space-ladspa \
@@ -75,7 +88,7 @@ build() {
 }
 
 package() {
-    cd "$_root"
+    cd "$_root" || return 1
 
     # LADSPA plugins (system-wide so PipeWire's filter-chain module
     # finds them via the standard LADSPA_PATH).
@@ -134,11 +147,7 @@ package() {
     done
 
     # License.
-    install -Dm644 /dev/stdin "$pkgdir/usr/share/licenses/$pkgname/LICENSE" <<'LICENSE'
-BigSound — System-wide audio enhancement for BigCommunity
-Copyright (C) 2026 Leonardo Athayde / BigCommunity Project
-Licensed under GPL-3.0-or-later.
-LICENSE
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
 # Post-install hint shown to the user via pacman .install hooks.
