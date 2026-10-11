@@ -48,7 +48,7 @@ A varredura de sigilo complementa a conferência humana do pacote final.
   [event-listener](https://rustsec.org/advisories/RUSTSEC-2026-0221.html),
   [gettext-rs](https://rustsec.org/advisories/RUSTSEC-2026-0244.html)). Auditoria final: zero
   vulnerabilidades e zero alertas, sem exclusões de advisories.
-- Ícone aprovado de mesa de áudio, colorido e simbólico em SVG autocontido;
+- Ícone aprovado de alto-falante com assinatura Big, colorido e simbólico em SVG autocontido;
   exportação PNG 512 px sem metadados pessoais. Capturas reais em português, temas claro/escuro e
   escala nativa 2×, feitas com GTK/X11, D-Bus e PipeWire privados. Documentação
   da direção em [ICON-DESIGN.md](ICON-DESIGN.md).
@@ -89,7 +89,7 @@ A primeira execução da atualização aprovou RustSec, testes Rust e ABI, mas
 falhou na validação de perfil contra o PipeWire antigo:
 [execução 38112381410](https://github.com/xathay/bigsound/actions/runs/38112381410).
 O diagnóstico posterior mostrou controles inalterados após um envio grande;
-a correção em `develop` limita os lotes e testa rollback com falha injetada
+a correção na branch de desenvolvimento limita os lotes e testa rollback com falha injetada
 no segundo lote. Consulte os checks do PR para o resultado da rodada atual.
 
 ## Estresse e performance

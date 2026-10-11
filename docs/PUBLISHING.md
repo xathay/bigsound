@@ -1,6 +1,6 @@
 # Preparação para o BigCommunity
 
-Trabalhe em `develop` e abra um pull request para `main` em `xathay/bigsound`.
+Trabalhe em `dev-xathay` e abra um pull request para `main` em `xathay/bigsound`.
 Confira o README renderizado na branch e acompanhe
 as Actions. Corrija falhas antes de criar o repositório no `big-comm`.
 A aprovação de uma release de áudio exige também escuta e hardware alvo;

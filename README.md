@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/bigsound-mixer.png" alt="Ícone do BigSound: mesa de áudio" width="112" height="112" />
+  <img src="assets/bigsound-speaker-big.png" alt="Ícone do BigSound: alto-falante com a marca Big" width="112" height="112" />
 </p>
 
 # BigSound
@@ -204,7 +204,7 @@ python3 scripts/check-publication.py . --history
 pendências de hardware/CI. Os testes privados usam D-Bus/PipeWire separados,
 sem monitores de hardware ou conexão aos sockets de áudio do usuário.
 
-Novas alterações são feitas em `develop` e revisadas por pull request para
+Novas alterações são feitas em `dev-xathay` e revisadas por pull request para
 `main`. Consulte [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Para uma receita portátil de distribuição, use
@@ -218,5 +218,7 @@ GPL-3.0-or-later. Consulte [LICENSE](LICENSE).
 BigCommunity Team. Mantenedor: [Leonardo Athayde](https://github.com/xathay).
 Construído com Rust, PipeWire, GTK4, libadwaita e zbus.
 
-O ícone é um SVG original de mesa de áudio, inspirado na paleta de wallpapers
-multimídia do BigCommunity. Não incorpora pixels dos wallpapers.
+O ícone combina um alto-falante estilizado, base grafite e acento ciano.
+A assinatura Big foi reutilizada do ícone `big-audio-converter` do BigLinux;
+a composição e a versão monocromática foram desenhadas para o BigSound.
+Consulte [ICON-DESIGN.md](docs/ICON-DESIGN.md).

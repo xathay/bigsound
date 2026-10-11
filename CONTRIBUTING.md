@@ -1,11 +1,11 @@
 # Desenvolvimento do BigSound
 
 - `main`: versões examinadas e integradas.
-- `develop`: trabalho em andamento e correções; a CI roda a cada push.
-- Integração: pull request de `develop` para `main`, com diff revisado e CI aprovada.
+- `dev-xathay`: trabalho em andamento e correções; a CI roda a cada push.
+- Integração: pull request de `dev-xathay` para `main`, com diff revisado e CI aprovada.
 
 ```bash
-git switch develop
+git switch dev-xathay
 git pull --ff-only
 ```
 
