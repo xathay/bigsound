@@ -19,6 +19,21 @@ import time
 import wave
 
 
+def parse_live_controls(props):
+    """Read numeric SPA values across PipeWire debug-output versions."""
+    actual = {}
+    pattern = r'String "([^"\n]+)"\n\s+(Float|Double|Int|Long|Bool) ([^\n]+)'
+    for key, kind, value in re.findall(pattern, props):
+        value = value.strip()
+        if kind == 'Bool':
+            if value not in ('true', 'false', '0', '1'):
+                raise ValueError('Unknown SPA boolean representation')
+            actual[key] = float(value in ('true', '1'))
+        else:
+            actual[key] = float(value)
+    return actual
+
+
 def main(target):
     root = Path(__file__).resolve().parents[1]
     children = []
@@ -136,18 +151,15 @@ def main(target):
                 cli('profile', 'save', name, ok=False)
             def profile_is_live(params):
                 props = run(['pw-cli', 'enum-params', str(old_id), 'Props'])
-                actual = {key: (kind, value) for key, kind, value in re.findall(r'String "([^"]+)"\n\s+(Float|Bool) ([^\n]+)', props)}
+                actual = parse_live_controls(props)
                 for key, expected in params.items():
                     module, control = key.split(':')
                     names = [module + suffix + ':' + control for suffix in ('_l', '_r')] if module in ('bigbass', 'bigclarity') else [key]
                     for internal in names:
                         if internal not in actual:
                             return False
-                        kind, value = actual[internal]
-                        if kind == 'Bool':
-                            if (value.strip() == 'true') != (expected > .5):
-                                return False
-                        elif abs(float(value) - expected) > 1e-5:
+                        value = actual[internal]
+                        if not math.isfinite(value) or abs(value - expected) > 1e-5:
                             return False
                 return True
             for name in cli('profile', 'list').splitlines():
@@ -219,6 +231,13 @@ def main(target):
                 print('GTK smoke test skipped: gtk4-broadwayd missing')
             assert daemon.poll() is None
         except Exception:
+            if 'old_id' in locals() and old_id is not None:
+                try:
+                    print('Live Props at failure:\n' + run(['pw-cli', 'enum-params', str(old_id), 'Props']), file=sys.stderr)
+                    if 'params' in locals():
+                        print('Expected profile controls: ' + json.dumps(params, sort_keys=True), file=sys.stderr)
+                except (AssertionError, subprocess.TimeoutExpired):
+                    pass
             print(run(['pw-link', '-io']), file=sys.stderr)
             for log in tmp.glob('*.log'):
                 text = log.read_text(errors='replace')
