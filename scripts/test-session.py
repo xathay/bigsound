@@ -58,6 +58,23 @@ def main(target):
             text = text.replace('__BIG_' + name.upper() + '_SO_PATH__', str(target / f'libbig_{name}.so'))
         (dropin / '99-bigsound.conf').write_text(text)
 
+        # Inject one second-batch failure, then delegate every other command
+        # to the real tool. All state belongs to this private test fixture.
+        real_pw_cli = shutil.which('pw-cli')
+        assert real_pw_cli
+        tools = tmp / 'tools'
+        tools.mkdir()
+        fail_batch = tmp / 'fail-second-batch'
+        wrapper = tools / 'pw-cli'
+        wrapper.write_text('#!' + sys.executable + '\n' +
+            'import os,sys\nfrom pathlib import Path\n' +
+            'flag=Path(' + repr(str(fail_batch)) + ')\n' +
+            "if len(sys.argv)>4 and sys.argv[1]=='set-param' and sys.argv[3]=='Props' and flag.exists() and '\"bigspace:width\"' in sys.argv[4] and '\"bigbass_l:' not in sys.argv[4]:\n" +
+            "    flag.unlink()\n    sys.stderr.write('Error: injected second-batch failure\\n')\n    sys.exit(1)\n" +
+            'os.execv(' + repr(real_pw_cli) + ',[' + repr(real_pw_cli) + ']+sys.argv[1:])\n')
+        wrapper.chmod(0o755)
+        env['PATH'] = str(tools) + os.pathsep + env.get('PATH', os.defpath)
+
         def start(args, name, **kwargs):
             log = open(tmp / (name + '.log'), 'wb')
             files.append(log)
@@ -174,6 +191,15 @@ def main(target):
                 list(pool.map(lambda i: cli('set', 'bigbass:mix', str(i / 100)), range(40)))
             cli('set', 'bigbass:mix', '0.31')
             assert float(cli('get', 'bigbass:mix')) == .31
+            previous = dict(params)
+            previous['bigbass:mix'] = .31
+            previous_profile = cli('profile', 'active')
+            fail_batch.write_text('fail once')
+            cli('profile', 'apply', 'BigSound', ok=False)
+            assert not fail_batch.exists(), 'The second batch must have been attempted'
+            assert cli('profile', 'active') == previous_profile
+            assert float(cli('get', 'bigbass:mix')) == .31
+            wait_for(lambda: profile_is_live(previous), 'live rollback after second profile batch failed')
             chain.terminate()
             chain.wait(timeout=5)
             wait_for(lambda: not node('BigSound'), 'filter-chain removal')
@@ -195,7 +221,7 @@ def main(target):
                 run(['pw-link', f'BigSound.output:output_{channel}', f'qa-record:input_{channel}'])
                 run(['pw-link', f'qa-source:output_{channel}', f'BigSound:playback_{channel}'])
             wait_for(lambda: '0.310000' in run(['pw-cli', 'enum-params', str(fresh_id), 'Props']), 'restored live tuning')
-            print('D-Bus/PipeWire: 17 controls, 15 profiles, invalid input, persistence, 40 concurrent writes, failed-write rollback and filter-chain restart OK')
+            print('D-Bus/PipeWire: 17 controls, 15 profiles, invalid input, persistence, 40 concurrent writes, failed-write/partial-profile rollback and filter-chain restart OK')
 
             cli('profile', 'apply', 'BigSound')
             time.sleep(1)

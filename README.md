@@ -194,7 +194,8 @@ não recupera informação descartada pelo codec.
 cargo build --release --locked
 ./scripts/validate.sh
 BIGSOUND_TEST_SESSION=1 ./scripts/validate.sh
-python3 scripts/test-gui.py --target target/release
+python3 scripts/test-gui.py --target target/release --theme light
+python3 scripts/test-gui.py --target target/release --theme dark
 python3 scripts/check-publication.py . --history
 ```
 

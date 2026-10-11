@@ -28,7 +28,7 @@ not connect to the user's audio sockets.
 | Allocation counter | process, parameter update and reset allocate zero times after construction | covers the Rust chain, not PipeWire/GTK |
 | LADSPA ABI | actual .so lifecycle, null controls/audio, invalid rates, in-place buffers and irregular block sizes | assumes host supplies valid non-null pointers and adequate buffer lengths |
 | Stress/performance | complete chain with profile switches and resets, blocks of 64/256/1024 at four rates | offline throughput on one machine, not a hard real-time guarantee |
-| Private session | real D-Bus CLI/daemon, live PipeWire controls, concurrent requests, profile persistence, filter-chain restart, captured processed audio | no physical ALSA/Bluetooth/HDMI device or WirePlumber policy |
+| Private session | real D-Bus CLI/daemon, live PipeWire controls, concurrent requests, profile persistence, real partial-profile rollback, filter-chain restart, captured processed audio | no physical ALSA/Bluetooth/HDMI device or WirePlumber policy |
 | GTK | Broadway startup and private X11 2× captures with mode/profile synchronization; worker coalescence/order unit tests | no comprehensive accessibility, visual or prolonged interactive regression coverage |
 | Security | RustSec and heuristic publication scan of candidates and reachable history | a clean scan does not prove absence of confidential context |
 
@@ -126,3 +126,16 @@ of GTK critical errors. All child processes are stopped on exit.
 
 This is a reproducible integration/capture smoke test, not a substitute for
 screen-reader review, hardware testing or complete GUI fault injection.
+
+## Legacy pw-cli profile boundary
+
+Older `pw-cli` versions use a fixed 1024-byte POD buffer for `set-param`.
+The daemon partitions profile updates into bounded batches without splitting
+stereo aliases. The Rust regression test checks a conservative encoded-size
+bound. Profile selection is committed only after all batches succeed.
+
+The private-session test injects one failure in the second profile batch,
+then confirms every live control returns to the previous state and the cached
+profile remains unchanged. If restoration fails because the graph is gone,
+the daemon retries only the previous confirmed cache. Multiple batches do
+not imply a sample-synchronous, globally atomic profile change.

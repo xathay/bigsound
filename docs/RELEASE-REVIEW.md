@@ -18,8 +18,12 @@ A varredura de sigilo complementa a conferência humana do pacote final.
   estritamente abaixo de Nyquist, inclusive nas taxas baixas.
 - Ganho de compensação do BigBass calculado na atualização de parâmetros,
   evitando uma exponenciação por amostra e canal.
-- Controles estéreo/perfis enviados em uma transação ao PipeWire; atualizações
-  e retentativas do daemon serializadas para evitar sobrescrever ajustes recentes.
+- Controles estéreo mantidos juntos e atualizações/retentativas serializadas.
+  Perfis são enviados em lotes limitados para caber no buffer de 1 KiB do
+  `pw-cli` antigo. A falha de um lote restaura os controles confirmados; se
+  a restauração também falhar, somente o estado anterior é agendado para retry.
+  Não há garantia de troca simultânea de todo o perfil num único frame.
+  Limite conferido no [código oficial do pw-cli 1.0.5](https://github.com/PipeWire/pipewire/blob/1.0.5/src/tools/pw-cli.c).
 - Subprocessos limitados a dois segundos e 4 MiB por saída; testes incluem
   processo travado, descendente mantendo pipe aberto e saída excessiva.
 - Persistência atômica com permissão 0600 e sincronização; leitura limitada de
@@ -67,12 +71,12 @@ A varredura de sigilo complementa a conferência humana do pacote final.
 | Verificação | Resultado |
 |---|---|
 | Formatação e Clippy com `-D warnings` | aprovados |
-| Testes Rust | 76 aprovados, zero falhas |
+| Testes Rust | 77 aprovados, zero falhas |
 | Cadeia DSP | 15 perfis × oito taxas de 8 a 384 kHz |
 | Alocação no processamento/atualização/reset | zero após construção |
 | ABI LADSPA dos cinco `.so` | 900 cenários aprovados |
-| Sessão privada D-Bus/PipeWire | 17 controles reais em todos os perfis, persistência, rejeição de entradas, 40 escritas concorrentes, rollback de escrita falha e reinício aprovados |
-| Captura de áudio da cadeia real | 103.424 frames estéreo finitos na repetição final; pico 0,9440609, fluxo virtual |
+| Sessão privada D-Bus/PipeWire | 17 controles reais em todos os perfis, persistência, rejeição de entradas, 40 escritas concorrentes, rollback de escrita falha, rollback de perfil parcialmente aplicado e reinício aprovados |
+| Captura de áudio da cadeia real | 262.144 frames estéreo finitos na repetição final; pico 0,9440609, fluxo virtual |
 | GTK4 | smoke Broadway e capturas X11 2×; alternância de abas, sincronização de perfil e interação real de slider conferidas; rollback com cadeia indisponível conferido |
 | ShellCheck, sintaxe Bash, gettext e desktop entry | aprovados |
 | Build atual | release Rust com lockfile; fontes para GitHub, sem binários locais no pacote de publicação |
@@ -81,11 +85,12 @@ A varredura de sigilo complementa a conferência humana do pacote final.
 | Coautoria por IA | zero trailers no histórico local e remoto consultado; nenhum trailer adicionado |
 | Imagens | três telas em dois temas e ícone; sessão isolada, PNGs sem EXIF ou campos textuais |
 
-Antes desta atualização, a execução remota consultada falhou em `cargo fmt --check`:
-[execução 27341682046](https://github.com/xathay/bigsound/actions/runs/27341682046).
-A formatação local foi corrigida. Conferir a execução da nova CI no repositório
-pessoal antes de enviar ao BigCommunity; testes locais não comprovam aprovação
-no runner remoto.
+A primeira execução da atualização aprovou RustSec, testes Rust e ABI, mas
+falhou na validação de perfil contra o PipeWire antigo:
+[execução 38112381410](https://github.com/xathay/bigsound/actions/runs/38112381410).
+O diagnóstico posterior mostrou controles inalterados após um envio grande;
+a correção em `develop` limita os lotes e testa rollback com falha injetada
+no segundo lote. Consulte os checks do PR para o resultado da rodada atual.
 
 ## Estresse e performance
 
