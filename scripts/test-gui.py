@@ -25,7 +25,7 @@ def main(args):
         for d in ('runtime','config','data','cache'): (work/d).mkdir(mode=0o700)
         env=dict(os.environ,XDG_RUNTIME_DIR=str(work/'runtime'),PIPEWIRE_RUNTIME_DIR=str(work/'runtime'),XDG_CONFIG_HOME=str(work/'config'),XDG_DATA_HOME=str(work/'data'),XDG_CACHE_HOME=str(work/'cache'),
                  PULSE_SERVER='unix:'+str(work/'unavailable-pulse'),DBUS_SYSTEM_BUS_ADDRESS='unix:path='+str(work/'unavailable-system'),
-                 LC_ALL='pt_BR.UTF-8',LANGUAGE='pt_BR',GSETTINGS_BACKEND='memory',GTK_A11Y='none',GTK_USE_PORTAL='0',GIO_USE_VFS='local')
+                 LC_ALL='pt_BR.UTF-8',LANGUAGE='pt_BR',ADW_DEBUG_COLOR_SCHEME='prefer-'+args.theme,GSETTINGS_BACKEND='memory',GTK_A11Y='none',GTK_USE_PORTAL='0',GIO_USE_VFS='local')
         if args.display is None:
             args.display=next((n for n in range(119,319) if not Path('/tmp/.X11-unix/X'+str(n)).exists() and not Path('/tmp/.X'+str(n)+'-lock').exists()),None)
             if args.display is None:raise RuntimeError('No free private X11 display')
@@ -78,11 +78,12 @@ def main(args):
             time.sleep(2)
             geometry=run(['xdotool','getwindowgeometry','--shell',window])
             run(['xdotool','windowfocus','--sync',window])
+            def themed(name):return Path(name).stem+'-'+args.theme+'.png'
             def shot(name):
                 run(['xdotool','mousemove','2190','2390'])
                 time.sleep(.2)
-                run(['magick','import','-window',window,'-strip',str(capture/name)])
-                return name
+                run(['magick','import','-window',window,'-strip',str(capture/themed(name))])
+                return themed(name)
             shot('main.png')
             gapp('advanced-view');time.sleep(.4);shot('advanced.png')
             gapp('main-view');cli('profile','apply','Voice / Podcast');time.sleep(3);shot('voice.png')
@@ -90,7 +91,7 @@ def main(args):
             print(json.dumps({'geometry':geometry,'captures':str(capture),'active':cli('profile','active')}),flush=True)
             captures=[]
             for name in ('main.png','advanced.png','voice.png'):
-                data=(capture/name).read_bytes()
+                data=(capture/themed(name)).read_bytes()
                 assert data[:8]==b'\x89PNG\r\n\x1a\n'
                 width,height=struct.unpack('>II',data[16:24])
                 assert width>=1200 and height>=1200,(name,width,height)
@@ -121,6 +122,7 @@ if __name__=='__main__':
     parser.add_argument('--source',default=str(root))
     parser.add_argument('--target',default=str(root/'target/release'))
     parser.add_argument('--capture',default=str(root/'validation-output/gui'))
+    parser.add_argument('--theme',choices=('light','dark'),default='light')
     parser.add_argument('--xvfb')
     parser.add_argument('--display',type=int)
     parser.add_argument('--private-bus',action='store_true',help=argparse.SUPPRESS)

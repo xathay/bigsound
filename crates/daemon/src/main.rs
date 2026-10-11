@@ -787,16 +787,35 @@ fn push_with_refresh(node_id_atom: &AtomicU32, values: &[(&str, f64)]) -> Result
     }
 }
 
-fn push_cache_to_pipewire(node_id_atom: &AtomicU32, cache: &HashMap<String, f64>) -> Result<()> {
+// pw-cli 1.0.x builds set-param PODs in a fixed 1024-byte buffer.
+// Sixteen known name/value pairs fit with header/alignment overhead. Keep
+// each public control's stereo aliases in the same batch.
+const MAX_CONTROLS_PER_BATCH: usize = 16;
+
+fn cached_control_batches(cache: &HashMap<String, f64>) -> Vec<Vec<(&'static str, f64)>> {
+    let mut batches = Vec::new();
     let mut values = Vec::new();
     for (public, internals, _) in PARAMS {
         if let Some(&value) = cache.get(*public) {
+            if values.len() + internals.len() > MAX_CONTROLS_PER_BATCH {
+                batches.push(std::mem::take(&mut values));
+            }
             for internal in *internals {
                 values.push((*internal, value));
             }
         }
     }
-    push_with_refresh(node_id_atom, &values)
+    if !values.is_empty() {
+        batches.push(values);
+    }
+    batches
+}
+
+fn push_cache_to_pipewire(node_id_atom: &AtomicU32, cache: &HashMap<String, f64>) -> Result<()> {
+    for values in cached_control_batches(cache) {
+        push_with_refresh(node_id_atom, &values)?;
+    }
+    Ok(())
 }
 
 struct ServiceInner {
@@ -894,13 +913,24 @@ impl ServiceInner {
         let _update = self.updates.lock().unwrap_or_else(|e| e.into_inner());
         // Recover from a poisoned mutex instead of panicking — a panic
         // in any other handler shouldn't permanently disable the daemon.
-        let mut snapshot = self.cache.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let previous = self.cache.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut snapshot = previous.clone();
         for (k, v) in &profile.params {
             snapshot.insert(k.clone(), *v);
         }
         // Commit the visible state only after PipeWire accepts the update.
         // A failed request must not be applied later by a background retry.
-        push_cache_to_pipewire(&self.node_id, &snapshot)?;
+        if let Err(update_error) = push_cache_to_pipewire(&self.node_id, &snapshot) {
+            // A later batch can fail after earlier controls changed. Restore
+            // the complete confirmed state before rejecting the profile.
+            if let Err(rollback_error) = push_cache_to_pipewire(&self.node_id, &previous) {
+                // Retry only the previous confirmed cache, never the rejected
+                // profile, when the graph becomes available again.
+                self.bump_cache_gen();
+                bail!("profile update failed: {update_error}; restoring previous controls failed: {rollback_error}; confirmed controls will be retried");
+            }
+            return Err(update_error.context("profile update rejected; previous controls restored"));
+        }
         *self.cache.lock().unwrap_or_else(|e| e.into_inner()) = snapshot;
         self.bump_cache_gen();
         *self
@@ -1582,6 +1612,39 @@ alsa_output.usb-microphone:playback_FR
         );
         assert!(control_pod(&[("bad\" ] }", 0.2)]).is_err());
         assert!(control_pod(&[("bigbass_l:mix", f64::INFINITY)]).is_err());
+    }
+
+    #[test]
+    fn profile_batches_fit_legacy_pod_buffer_and_keep_stereo_pairs_together() {
+        let cache: HashMap<_, _> = PARAMS
+            .iter()
+            .map(|(name, _, value)| (name.to_string(), *value))
+            .collect();
+        let batches = cached_control_batches(&cache);
+        assert_eq!(batches.len(), 2);
+        assert_eq!(
+            batches.iter().map(Vec::len).sum::<usize>(),
+            PARAMS
+                .iter()
+                .map(|(_, internals, _)| internals.len())
+                .sum::<usize>()
+        );
+        for batch in &batches {
+            // Conservative SPA object/struct header plus padded String and
+            // numeric PODs. Numeric PODs need at most sixteen bytes.
+            let encoded_bound = 64
+                + batch
+                    .iter()
+                    .map(|(name, _)| 8 + (name.len() + 1).div_ceil(8) * 8 + 16)
+                    .sum::<usize>();
+            assert!(encoded_bound <= 1024);
+            control_pod(batch).unwrap();
+        }
+        for (_, internals, _) in PARAMS {
+            assert!(batches.iter().any(|batch| internals
+                .iter()
+                .all(|name| batch.iter().any(|(actual, _)| actual == name))));
+        }
     }
 
     #[test]

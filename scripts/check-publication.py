@@ -20,6 +20,7 @@ RULES = {
     'brazilian-person-id': rb'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b',
 }
 PATTERNS = {key: re.compile(value) for key, value in RULES.items()}
+AI_IDENTITY = re.compile(rb'(?i)\b(?:clau' + rb'de|anthro' + rb'pic|codex|openai)\b')
 
 
 def git(root, *args):
@@ -47,6 +48,10 @@ def scan(root, history):
     if history:
         for commit in git(root, 'rev-list', '--all').splitlines():
             commits += 1
+            identities = git(root, 'show', '-s', '--format=%an%n%ae%n%cn%n%ce', commit.decode())
+            if AI_IDENTITY.search(identities):
+                findings.append({'scope': 'commit-identity', 'object': commit.decode()[:12],
+                                 'rule': 'ai-author-or-committer'})
             message = git(root, 'show', '-s', '--format=%B', commit.decode())
             for rule in matches(message):
                 findings.append({'scope': 'commit-message', 'object': commit.decode()[:12], 'rule': rule})

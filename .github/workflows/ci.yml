@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev-xathay]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -24,6 +24,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -40,7 +42,7 @@ jobs:
           BIGSOUND_TEST_SESSION: '1'
         run: ./scripts/validate.sh
       - name: Publication scan
-        run: python3 scripts/check-publication.py .
+        run: python3 scripts/check-publication.py . --history
 
   dependencies:
     name: RustSec (including unsound, unmaintained and yanked warnings)

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon.png" alt="Ícone do BigSound: mesa de áudio" width="112" height="112" />
+  <img src="assets/bigsound-speaker-big.png" alt="Ícone do BigSound: alto-falante com a marca Big" width="112" height="112" />
 </p>
 
 # BigSound
@@ -16,8 +16,16 @@ selecionado como saída do sistema.
 Escolha um perfil, confirme a saída e ajuste grave, brilho, espaço estéreo e
 compressão. O perfil **BigSound** é o ponto de partida equilibrado.
 
+**Tema claro**
+
 <p align="center">
-  <img src="assets/screenshots/main.png" alt="Aba Principal do BigSound: perfil equilibrado, saída, resumo dos controles e quatro ajustes rápidos" width="760" />
+  <a href="assets/screenshots/main-light.png"><img src="assets/screenshots/main-light.png" alt="Aba Principal do BigSound: perfil equilibrado, saída, resumo dos controles e quatro ajustes rápidos" width="760" /></a>
+</p>
+
+**Tema escuro**
+
+<p align="center">
+  <a href="assets/screenshots/main-dark.png"><img src="assets/screenshots/main-dark.png" alt="Principal do BigSound no tema escuro" width="760" /></a>
 </p>
 
 ### Avançado
@@ -26,8 +34,16 @@ Os **17 controles** ficam organizados por módulo: síntese de grave, exciter
 de agudos, imagem estéreo, crossfeed e dinâmica/saída. Frequências, drive,
 mix, atraso e teto de pico ficam disponíveis sem ocupar a tela principal.
 
+**Tema claro**
+
 <p align="center">
-  <img src="assets/screenshots/advanced.png" alt="Aba Avançado: parâmetros de grave e agudos; os demais módulos aparecem ao rolar a página" width="760" />
+  <a href="assets/screenshots/advanced-light.png"><img src="assets/screenshots/advanced-light.png" alt="Aba Avançado: parâmetros de grave e agudos; os demais módulos aparecem ao rolar a página" width="760" /></a>
+</p>
+
+**Tema escuro**
+
+<p align="center">
+  <a href="assets/screenshots/advanced-dark.png"><img src="assets/screenshots/advanced-dark.png" alt="Avançado do BigSound no tema escuro" width="760" /></a>
 </p>
 
 ### Um resumo visual para cada perfil
@@ -36,8 +52,16 @@ As barras acompanham os **valores reais dos controles** de mix de grave,
 brilho, largura estéreo, crossfeed e compressão. A descrição e o símbolo do
 perfil ajudam a identificar sua finalidade.
 
+**Tema claro**
+
 <p align="center">
-  <img src="assets/screenshots/voice.png" alt="Perfil Voz / Podcast com descrição e barras refletindo os valores dos controles" width="760" />
+  <a href="assets/screenshots/voice-light.png"><img src="assets/screenshots/voice-light.png" alt="Perfil Voz / Podcast com descrição e barras refletindo os valores dos controles" width="760" /></a>
+</p>
+
+**Tema escuro**
+
+<p align="center">
+  <a href="assets/screenshots/voice-dark.png"><img src="assets/screenshots/voice-dark.png" alt="Voz / Podcast do BigSound no tema escuro" width="760" /></a>
 </p>
 
 Esse resumo é um mapa dos ajustes, **não um analisador de espectro, medidor
@@ -45,7 +69,7 @@ de volume ou curva de resposta**. Percentuais indicam posições dos controles;
 a largura estéreo aparece como fator: 1,0 é neutro. As barras são normalizadas
 por suas faixas e não comparam grandezas físicas entre módulos.
 
-As imagens são capturas reais do aplicativo em português, em resolução 2×,
+As imagens são capturas reais nos temas claro e escuro, em português e resolução 2×,
 numa sessão privada de teste. Nenhum dispositivo físico, áudio pessoal ou
 desktop do usuário foi capturado. Clique nas imagens para ver os originais.
 
@@ -170,7 +194,8 @@ não recupera informação descartada pelo codec.
 cargo build --release --locked
 ./scripts/validate.sh
 BIGSOUND_TEST_SESSION=1 ./scripts/validate.sh
-python3 scripts/test-gui.py --target target/release
+python3 scripts/test-gui.py --target target/release --theme light
+python3 scripts/test-gui.py --target target/release --theme dark
 python3 scripts/check-publication.py . --history
 ```
 
@@ -178,6 +203,9 @@ python3 scripts/check-publication.py . --history
 [RELEASE-REVIEW.md](docs/RELEASE-REVIEW.md) registra evidências, limitações e
 pendências de hardware/CI. Os testes privados usam D-Bus/PipeWire separados,
 sem monitores de hardware ou conexão aos sockets de áudio do usuário.
+
+Novas alterações são feitas em `dev-xathay` e revisadas por pull request para
+`main`. Consulte [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Para uma receita portátil de distribuição, use
 `scripts/render-release-pkgbuild.py` com uma fonte existente e SHA-256
@@ -190,5 +218,7 @@ GPL-3.0-or-later. Consulte [LICENSE](LICENSE).
 BigCommunity Team. Mantenedor: [Leonardo Athayde](https://github.com/xathay).
 Construído com Rust, PipeWire, GTK4, libadwaita e zbus.
 
-O ícone é um SVG original de mesa de áudio, inspirado na paleta de wallpapers
-multimídia do BigCommunity. Não incorpora pixels dos wallpapers.
+O ícone combina um alto-falante estilizado, base grafite e acento ciano.
+A assinatura Big foi reutilizada do ícone `big-audio-converter` do BigLinux;
+a composição e a versão monocromática foram desenhadas para o BigSound.
+Consulte [ICON-DESIGN.md](docs/ICON-DESIGN.md).
