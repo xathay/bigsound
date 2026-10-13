@@ -338,17 +338,11 @@ fn show_about_window(parent: &impl IsA<gtk::Window>) {
         .copyright("© 2026 BigCommunity Team")
         .license_type(gtk::License::Gpl30)
         .website("https://communitybig.org")
-        .issue_url("https://github.com/xathay/bigsound/issues")
+        .issue_url("https://github.com/big-comm/bigsound/issues")
         .comments(&comments)
         .build();
 
-    // Credit sections — the order in which we call `add_credit_section`
-    // is the order they're rendered in the Credits page. Maintainer goes
-    // FIRST per project preference; translator section is added last.
-    about.add_credit_section(
-        Some(&tr("Maintainer")),
-        &["Leonardo Athayde https://github.com/xathay"],
-    );
+    // Credit sections appear in insertion order; translation is listed last.
     about.add_credit_section(
         Some(&tr("DSP techniques")),
         &[
@@ -371,7 +365,7 @@ fn show_about_window(parent: &impl IsA<gtk::Window>) {
     // Translator credits added as a regular section so it doesn't get
     // pinned to the top of the Credits page by libadwaita's special
     // handling of `set_translator_credits`. Empty single-line section.
-    about.add_credit_section(Some(&tr("Translation")), &["Leonardo Athayde"]);
+    about.add_credit_section(Some(&tr("Translation")), &["BigCommunity Team"]);
 
     about.present();
 }

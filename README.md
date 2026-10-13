@@ -215,7 +215,7 @@ verificado. `packaging/PKGBUILD` compila o checkout pai.
 
 GPL-3.0-or-later. Consulte [LICENSE](LICENSE).
 
-BigCommunity Team. Mantenedor: [Leonardo Athayde](https://github.com/xathay).
+Developed by BigCommunity Team.
 Construído com Rust, PipeWire, GTK4, libadwaita e zbus.
 
 O ícone combina um alto-falante estilizado, base grafite e acento ciano.
